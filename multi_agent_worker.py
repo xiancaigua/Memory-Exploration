@@ -15,8 +15,10 @@ if not os.path.exists(gifs_path):
     os.makedirs(gifs_path)
 
 
+# Multi_agent_worker 类用于管理多机器人系统的运行，包括环境交互、信念地图更新和任务执行。
 class Multi_agent_worker:
     def __init__(self, meta_agent_id, policy_net, global_step, device='cpu', save_image=False):
+        # 初始化多机器人工作器，包括元代理 ID、策略网络、全局步数、设备和是否保存图像。
         self.meta_agent_id = meta_agent_id
         self.global_step = global_step
         self.save_image = save_image
@@ -60,6 +62,7 @@ class Multi_agent_worker:
             self.ground_truth_episode_buffer.append([])
  
     def run_episode(self):
+        # 执行一个完整的任务周期，包括机器人感知、规划和行动。
         done = False
 
         self.update_ground_truth_graph(self.env.belief_info)
@@ -75,7 +78,7 @@ class Multi_agent_worker:
         for i in range(MAX_EPISODE_STEP):
             selected_locations = []
             dist_list = []
-            next_node_index_list = []
+            # next_node_index_list = []
             local_observations = []
             next_local_observations = []
             
@@ -85,12 +88,15 @@ class Multi_agent_worker:
 
             # send msg
             for robot in self.robot_list:
-                local_observations.append(robot.get_local_observation())
-                local_observation = local_observations[robot.id]
+                local_observation = robot.get_local_observation()
+                local_observations.append(local_observation)
+                # local_observations.append(robot.get_local_observation())
+                # local_observation = local_observations[robot.id]
 
                 local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index, current_local_edge, local_edge_padding_mask = local_observation
                 current_coord = torch.tensor(robot.location, dtype=torch.float32, device=self.device).reshape(1, 1, 2)
-                enhanced_node_feature, current_state_feature = robot.policy_net.get_current_state_feature(local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index,current_coord)
+                enhanced_node_feature, current_state_feature = robot.policy_net.get_current_state_feature(local_node_inputs, local_node_padding_mask, 
+                                                                                                          local_edge_mask, current_local_index,current_coord)
                 # send detached current_state_feature to other robots
                 self.send_msg(current_state_feature.detach(), robot.id)
 
@@ -120,13 +126,16 @@ class Multi_agent_worker:
 
                 selected_locations.append(next_location)
                 dist_list.append(np.linalg.norm(next_location - robot.location))
-                next_node_index_list.append(next_node_index)
+                # next_node_index_list.append(next_node_index)
             
 
             selected_locations = np.array(selected_locations).reshape(-1, 2)
             arriving_sequence = np.argsort(np.array(dist_list))
             selected_locations_in_arriving_sequence = np.array(selected_locations)[arriving_sequence]
 
+            # for each robot, check if the selected location is already in the solved locations
+            # if so, find the nearest neighbor in the local node manager
+            # and update the selected location
             for j, selected_location in enumerate(selected_locations_in_arriving_sequence):
                 solved_locations = selected_locations_in_arriving_sequence[:j]
                 while selected_location[0] + selected_location[1] * 1j in solved_locations[:, 0] + solved_locations[:, 1] * 1j:
@@ -191,6 +200,8 @@ class Multi_agent_worker:
             
             for agent_id in range(len(self.robot_list)):
                 self.robot_list[agent_id].save_reward(reward_list[agent_id][0] + team_reward)
+                # print("reward_list[agent_id]",reward_list[agent_id],',',type(reward_list[agent_id]))
+                # print("reward_list[agent_id][0]",reward_list[agent_id][0],',',type(reward_list[agent_id][0]))
                 self.robot_list[agent_id].update_planning_state(self.robot_list[agent_id].env.robot_locations)
                 self.robot_list[agent_id].update_ground_truth_planning_state(self.robot_list[agent_id].env.robot_locations)
                 self.robot_list[agent_id].save_done(done)
@@ -244,6 +255,7 @@ class Multi_agent_worker:
 
 
     def plot_local_env(self, step):
+        # 绘制局部环境的探索状态，包括机器人位置和轨迹。
         plt.switch_backend('agg')
         plt.style.use('fast')
         fig = plt.figure(figsize=(15, 5))
@@ -296,6 +308,7 @@ class Multi_agent_worker:
         plt.close()
     
     def send_msg(self, msg, robot_id):
+        # 向其他机器人发送消息，更新其消息队列。
         for robot in self.robot_list:
             if len(robot.msgs[robot_id]) > 5:
                 # delete the oldest msg
@@ -303,6 +316,7 @@ class Multi_agent_worker:
             robot.msgs[robot_id].append(msg.clone())
 
     def stack_msgs(self, msgs, robot_id):
+        # 将来自其他机器人的消息堆叠成一个张量。
         stacked_msg = []
         for i in range(self.n_agent):
             if i == robot_id:
@@ -312,4 +326,5 @@ class Multi_agent_worker:
         return stacked_msg.clone()
     
     def update_ground_truth_graph(self, map_info):
+        # 更新全局真实地图的图结构。
         self.ground_truth_node_manager.update_ground_truth_graph(map_info)

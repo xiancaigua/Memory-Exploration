@@ -6,8 +6,12 @@ import time
 from parameter import *
 from utils import *
 
+# Ground_truth_node_manager 类用于管理全局真实地图的节点信息和图结构。
 class Ground_truth_node_manager:
     def __init__(self, ground_truth_map_info, plot=False):
+        # 初始化真实地图节点管理器，包括四叉树结构和地图信息。
+        # ground_truth_map_info 包含地图的元信息。
+        # plot 参数决定是否绘制图形。
         self.ground_truth_nodes_dict = quads.QuadTree((0, 0), 1000, 1000)
         self.ground_truth_map_info = ground_truth_map_info
         self.ground_truth_map_info.map = ((self.ground_truth_map_info.map == 255) * 128) + 127
@@ -22,11 +26,13 @@ class Ground_truth_node_manager:
             self.y = []
 
     def add_node_to_dict(self, coords):
+        # 将一个节点添加到四叉树字典中。
         key = (coords[0], coords[1])
         node = Ground_truth_node(coords, self.free_area, self.ground_truth_map_info)
         self.ground_truth_nodes_dict.insert(point=key, data=node)
 
     def initial_ground_truth_graph(self):
+        # 初始化真实地图的图结构，包括节点和邻居关系。
         ground_truth_node_coords = get_ground_truth_node_coords(self.ground_truth_map_info)
         for coords in ground_truth_node_coords:
             self.add_node_to_dict(coords)
@@ -42,6 +48,7 @@ class Ground_truth_node_manager:
         return ground_truth_node_coords, utility
 
     def update_ground_truth_graph(self, belief_map_info):
+        # 根据信念地图更新真实地图的图结构。
         observed_obstacles_map = belief_map_info.map
         updated_map = self.ground_truth_map_info.map
         updated_map = np.where(observed_obstacles_map == 1, observed_obstacles_map, updated_map)
@@ -67,6 +74,7 @@ class Ground_truth_node_manager:
         self.utility = np.array(utility)
         
     def get_all_node_graph(self, robot_location, robot_locations):
+        # 获取所有节点的图结构，包括邻接矩阵、效用值等。
         all_node_coords = []
         for node in self.ground_truth_nodes_dict.__iter__():
             all_node_coords.append(node.data.coords)
@@ -136,6 +144,7 @@ class Ground_truth_node_manager:
         return all_node_coords, utility, guidepost, occupancy, adjacent_matrix, current_index, neighbor_indices
     
     def get_neighbor_boundary(self, coords):
+        # 获取指定坐标的邻居边界框。
         min_x = coords[0] - 20
         min_y = coords[1] - 20
         max_x = coords[0] + 20
@@ -144,16 +153,19 @@ class Ground_truth_node_manager:
         return neighbor_boundary
 
     def h(self, coords_1, coords_2):
+        # 计算两点之间的欧几里得距离。
         h = ((coords_1[0] - coords_2[0]) ** 2 + (coords_1[1] - coords_2[1]) ** 2) ** (1 / 2)
         h = np.round(h, 2)
         return h
 
     def check_node_exist_in_dict(self, coords):
+        # 检查指定坐标的节点是否存在于字典中。
         key = (coords[0], coords[1])
         exist = self.ground_truth_nodes_dict.find(key)
         return exist
 
     def a_star(self, start, destination, max_dist=1e8):
+        # 使用 A* 算法计算从起点到目标点的最短路径。
         if not self.check_node_exist_in_dict(start):
             print('start does not existed')
             return [], 1e8
@@ -218,6 +230,7 @@ class Ground_truth_node_manager:
         return [], 1e8
 
     def Dijkstra(self, start):
+        # 使用 Dijkstra 算法计算从起点到所有节点的最短路径。
         q = set()
         dist_dict = {}
         prev_dict = {}
@@ -257,6 +270,7 @@ class Ground_truth_node_manager:
         return dist_dict, prev_dict
 
     def get_Dijkstra_path_and_dist(self, dist_dict, prev_dict, end):
+        # 根据 Dijkstra 算法的结果获取从起点到终点的路径和距离。
         dist = dist_dict[(end[0], end[1])]
 
         path = [(end[0], end[1])]
@@ -270,8 +284,10 @@ class Ground_truth_node_manager:
         return path[1:], np.round(dist, 2)
 
 
+# Ground_truth_node 类表示真实地图中的一个节点。
 class Ground_truth_node:
     def __init__(self, coords, free_area, ground_truth_map_info):
+        # 初始化节点，包括坐标、可观察的自由区域和邻居信息。
         self.coords = coords
         self.utility_range = UTILITY_RANGE
         self.observable_free = self.initialize_observable_free(free_area, ground_truth_map_info)
@@ -283,6 +299,7 @@ class Ground_truth_node:
         self.neighbor_list.append(self.coords)
         
     def initialize_observable_free(self, free_area, ground_truth_map_info):
+        # 初始化节点的可观察自由区域。
         if free_area.shape[0] == 0:
             self.utility = 0
             return free_area
@@ -299,6 +316,7 @@ class Ground_truth_node:
         
 
     def update_neighbor_nodes(self, ground_truth_map_info, nodes_dict):
+        # 更新节点的邻居信息。
         for i in range(self.neighbor_matrix.shape[0]):
             for j in range(self.neighbor_matrix.shape[1]):
                 if self.neighbor_matrix[i, j] != -1:
@@ -331,6 +349,7 @@ class Ground_truth_node:
                             neighbor_node.neighbor_list.append(self.coords)
             
     def update_node_observable_free(self, free_area):
+        # 更新节点的可观察自由区域。
         free_area = free_area.reshape(-1, 2)
         old_free_to_check = self.observable_free[:, 0] + self.observable_free[:, 1] * 1j
         local_free_to_check = free_area[:, 0] + free_area[:, 1] * 1j
@@ -340,6 +359,7 @@ class Ground_truth_node:
         self.utility = self.observable_free.shape[0] if self.observable_free.shape[0] > MIN_UTILITY else 0
 
     def delete_observed_frontiers(self, observed_frontiers):
+        # 删除已被观察到的前沿。
         observed_frontiers = observed_frontiers.reshape(-1, 2)
         old_frontier_to_check = self.observable_frontiers[:, 0] + self.observable_frontiers[:, 1] * 1j
         observed_frontiers_to_check = observed_frontiers[:, 0] + observed_frontiers[:, 1] * 1j
@@ -352,5 +372,6 @@ class Ground_truth_node:
             self.utility = 0
 
     def set_visited(self):
+        # 将节点标记为已访问。
         self.observable_frontiers = np.array([[], []]).reshape(0, 2)
         self.utility = 0

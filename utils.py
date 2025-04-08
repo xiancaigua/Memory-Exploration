@@ -10,6 +10,7 @@ from parameter import *
 
 
 def get_cell_position_from_coords(coords, map_info):
+    # 将地图中的实际坐标（coords）转换为网格单元坐标（cell_position）
     coords = coords.reshape(-1, 2)
     coords_x = coords[:, 0]
     coords_y = coords[:, 1]
@@ -25,6 +26,7 @@ def get_cell_position_from_coords(coords, map_info):
 
 
 def get_coords_from_cell_position(cell_position, map_info):
+    # 将网格单元坐标转换为实际坐标。
     cell_position = cell_position.reshape(-1, 2)
     cell_x = cell_position[:, 0]
     cell_y = cell_position[:, 1]
@@ -39,6 +41,7 @@ def get_coords_from_cell_position(cell_position, map_info):
 
 
 def get_free_area_coords(map_info):
+    # 获取地图中所有自由区域的实际坐标。
     free_indices = np.where(map_info.map == 255)
     free_cells = np.asarray([free_indices[1], free_indices[0]]).T
     free_coords = get_coords_from_cell_position(free_cells, map_info)
@@ -46,6 +49,7 @@ def get_free_area_coords(map_info):
 
 
 def get_ground_truth_node_coords(global_map_info):
+    # 获取全局地图中所有节点的实际坐标。
     x_min = (global_map_info.map_origin_x // NODE_RESOLUTION) * NODE_RESOLUTION
     y_min = (global_map_info.map_origin_y // NODE_RESOLUTION) * NODE_RESOLUTION
     x_max = ((global_map_info.map_origin_x + global_map_info.map.shape[1] * CELL_SIZE) // NODE_RESOLUTION) * NODE_RESOLUTION
@@ -69,41 +73,49 @@ def get_ground_truth_node_coords(global_map_info):
 
 
 def get_free_and_connected_map(location, map_info):
-    # a binary map for free and connected areas
+    # 获取与当前位置连通的自由区域的二值地图。
     free = (map_info.map == 255).astype(float)
-    labeled_free = label(free, connectivity=2)
+    labeled_free = label(free, connectivity=2) # connectivity=2 表示使用 8 连通性（即考虑对角线方向的连接）。
+    # labeled_free 是一个数组，其中每个连通区域被赋予一个唯一的标签编号。
     cell = get_cell_position_from_coords(location, map_info)
-    label_number = labeled_free[cell[1], cell[0]]
+    label_number = labeled_free[cell[1], cell[0]]  # 获取当前位置所在的连通区域的标签编号
+    # 创建一个二值地图，表示与当前位置连接的自由区域
     connected_free_map = (labeled_free == label_number)
     return connected_free_map
 
 
 def get_local_node_coords(location, local_map_info):
+    # 获取局部地图中的所有节点坐标。
+    # 计算局部地图的最小和最大坐标，确保它们是NODE_RESOLUTION的整数倍
     x_min = (local_map_info.map_origin_x // NODE_RESOLUTION + 1) * NODE_RESOLUTION
     y_min = (local_map_info.map_origin_y // NODE_RESOLUTION + 1) * NODE_RESOLUTION
     x_max = ((local_map_info.map_origin_x + local_map_info.map.shape[1] * CELL_SIZE) // NODE_RESOLUTION) * NODE_RESOLUTION
     y_max = ((local_map_info.map_origin_y + local_map_info.map.shape[0] * CELL_SIZE) // NODE_RESOLUTION) * NODE_RESOLUTION
 
+    # 生成x和y方向上的坐标数组，并创建网格点
     x_coords = np.arange(x_min, x_max, NODE_RESOLUTION)
     y_coords = np.arange(y_min, y_max, NODE_RESOLUTION)
     t1, t2 = np.meshgrid(x_coords, y_coords)
-    nodes = np.vstack([t1.T.ravel(), t2.T.ravel()]).T
-    nodes = np.around(nodes, 1)
+    nodes = np.vstack([t1.T.ravel(), t2.T.ravel()]).T # 将网格点坐标堆叠成一个二维数组
+    nodes = np.around(nodes, 1)  # 将坐标四舍五入到小数点后一位
 
+    # 获取与当前位置连接的自由区域的二值地图
     free_connected_map = get_free_and_connected_map(location, local_map_info)
 
-    indices = []
-    nodes_cells = get_cell_position_from_coords(nodes, local_map_info)
+    indices = []  # 用于存储有效节点的索引
+    nodes_cells = get_cell_position_from_coords(nodes, local_map_info)  # 将节点坐标转换为网格单元位置
     for i, cell in enumerate(nodes_cells):
+        # 检查节点是否位于自由且连接的区域中
         if free_connected_map[cell[1], cell[0]] == 1:
             indices.append(i)
     indices = np.array(indices)
-    nodes = nodes[indices]
+    nodes = nodes[indices]  # 筛选出有效的节点
 
-    return nodes, free_connected_map
+    return nodes, free_connected_map  # 返回有效节点和自由连接区域的二值地图
 
 
 def get_frontier_in_map(map_info_to_copy):
+    # 获取地图中的前沿（未探索区域的边界）。
     map_info = deepcopy(map_info_to_copy)
     x_len = map_info.map.shape[1]
     y_len = map_info.map.shape[0]
@@ -134,6 +146,7 @@ def get_frontier_in_map(map_info_to_copy):
 
 
 def get_partial_map_from_center(original_map_info, center_coords, partial_map_size):
+    # 获取以中心点为基准的局部地图。
     partial_map_origin_x = (center_coords[
                               0] - partial_map_size / 2) // NODE_RESOLUTION * NODE_RESOLUTION
     partial_map_origin_y = (center_coords[
@@ -176,6 +189,7 @@ def get_partial_map_from_center(original_map_info, center_coords, partial_map_si
 
 
 def frontier_down_sample(data, voxel_size=FRONTIER_CELL_SIZE):
+    # 对前沿点进行下采样以减少冗余。
     voxel_indices = np.array(data / voxel_size, dtype=int).reshape(-1, 2)
 
     voxel_dict = {}
@@ -195,6 +209,7 @@ def frontier_down_sample(data, voxel_size=FRONTIER_CELL_SIZE):
 
 
 def check_collision(start, end, map_info):
+    # 检查从起点到终点的路径是否存在碰撞。
     # Bresenham line algorithm checking
     collision = False
 
@@ -234,6 +249,7 @@ def check_collision(start, end, map_info):
 
 
 def make_gif(path, n, frame_files, rate):
+    # 生成探索过程的 GIF 动画。
     with imageio.get_writer('{}/{}_explored_rate_{:.4g}.gif'.format(path, n, rate), mode='I', duration=0.5) as writer:
         for frame in frame_files:
             image = imageio.imread(frame)
@@ -246,11 +262,13 @@ def make_gif(path, n, frame_files, rate):
 
 
 def get_free_area_indices(belief):
+    # 获取信念地图中自由区域的索引。
     free_area_indices = np.where(belief == 255)
     free_area_indices = free_area_indices[0] + free_area_indices[1] * 1j
     return free_area_indices
 
 def get_new_free_area_indices(old_belief, new_belief):
+    # 获取信念地图中新发现的自由区域索引。
     old_free_area_indices = np.where(old_belief == 255)
     old_free_area_indices = old_free_area_indices[0] + old_free_area_indices[1] * 1j
 
@@ -263,12 +281,14 @@ def get_new_free_area_indices(old_belief, new_belief):
 
 class Map_info:
     def __init__(self, map, map_origin_x, map_origin_y, cell_size):
+        # 初始化地图信息，包括地图数据、原点坐标和单元格大小。
         self.map = map
         self.map_origin_x = map_origin_x
         self.map_origin_y = map_origin_y
         self.cell_size = cell_size
 
     def update_map_info(self, map, map_origin_x, map_origin_y):
+        # 更新地图信息。
         self.map = map
         self.map_origin_x = map_origin_x
         self.map_origin_y = map_origin_y

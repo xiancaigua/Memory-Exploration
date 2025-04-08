@@ -114,7 +114,7 @@ def main():
     # initialize training replay buffer
     experience_buffer = []
     ground_truth_experience_buffer = []
-    for i in range(19):
+    for _ in range(19):
         experience_buffer.append([])
     for _ in range(12):
         ground_truth_experience_buffer.append([])
