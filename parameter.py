@@ -3,7 +3,7 @@ model_path = f'model/{FOLDER_NAME}'
 train_path = f'train/{FOLDER_NAME}'
 gifs_path = f'gifs/{FOLDER_NAME}'
 SUMMARY_WINDOW = 32
-LOAD_MODEL = False  # do you want to load the model trained before
+LOAD_MODEL = True  # do you want to load the model trained before
 SAVE_IMG_GAP = 100
 
 N_AGENTS = 4
@@ -21,9 +21,9 @@ LOCAL_MAP_SIZE = 40  # meter
 EXTENDED_LOCAL_MAP_SIZE = 6 * SENSOR_RANGE * 1.05
 
 MAX_EPISODE_STEP = 128
-REPLAY_SIZE = 5000
-MINIMUM_BUFFER_SIZE = 1000
-BATCH_SIZE = 64
+REPLAY_SIZE = 10000
+MINIMUM_BUFFER_SIZE = 5000
+BATCH_SIZE = 128
 LR = 1e-5
 GAMMA = 1
 
@@ -37,4 +37,4 @@ LOCAL_NODE_PADDING_SIZE = 360  # the number of nodes will be padded to this valu
 USE_GPU = False  # do you want to collect training data using GPUs
 USE_GPU_GLOBAL = True  # do you want to train the network using GPUs
 NUM_GPU = 1
-NUM_META_AGENT = 4
+NUM_META_AGENT = 8
