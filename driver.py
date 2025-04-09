@@ -62,7 +62,11 @@ def main():
         global_q_net2.load_state_dict(checkpoint['q_net2_model'])
         log_alpha = checkpoint['log_alpha']  # not trainable when loaded from checkpoint, manually tune it for now
         log_alpha_optimizer = optim.Adam([log_alpha], lr=1e-4)
-        
+        print("log_alpha", log_alpha.device)
+        if log_alpha.device != device:
+            log_alpha = log_alpha.to(device)
+            print("log_alpha", log_alpha.device)
+
         global_policy_optimizer.load_state_dict(checkpoint['policy_optimizer'])
         global_q_net1_optimizer.load_state_dict(checkpoint['q_net1_optimizer'])
         global_q_net2_optimizer.load_state_dict(checkpoint['q_net2_optimizer'])
@@ -225,6 +229,9 @@ def main():
                         
                     logp = dp_policy(*observation)
 
+                    print("logp", logp.device)
+                    print("q_values", q_values.device)
+                    print("log_alpha", log_alpha.device)
                     policy_loss = torch.sum(
                         (logp.exp().unsqueeze(2) * (log_alpha.exp().detach() * logp.unsqueeze(2) - q_values.detach())),
                         dim=1).mean()

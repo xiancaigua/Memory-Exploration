@@ -375,3 +375,50 @@ class QNet(nn.Module):
         return q_values
 
 
+class NeuralTuringMachine(nn.Module):
+    def __init__(self, node_dim, local_node_dim, embedding_dim, memory_size=128):
+        super(NeuralTuringMachine, self).__init__()
+        self.policy_net = PolicyNet(node_dim, embedding_dim)
+        self.q_net = QNet(local_node_dim, embedding_dim)
+        self.memory_size = memory_size
+        
+        # 添加存储器相关组件
+        self.memory = nn.Parameter(torch.zeros(memory_size, embedding_dim))
+        self.memory_controller = nn.LSTM(embedding_dim, embedding_dim)
+        self.write_head = nn.Linear(embedding_dim, embedding_dim)
+        self.read_head = nn.Linear(embedding_dim, embedding_dim)
+
+    def forward(self, node_inputs, node_padding_mask, edge_mask,
+                current_index, current_edge, edge_padding_mask,
+                current_coord, msg_stacked):
+        # 更新存储器状态
+        memory_read = self._read_memory(current_coord)
+        node_inputs = node_inputs + memory_read
+        
+        # 获取策略和价值
+        logp = self.policy_net(node_inputs, node_padding_mask,
+                              edge_mask, current_index,
+                              current_edge, edge_padding_mask,
+                              current_coord, msg_stacked)
+
+        q_values = self.q_net(node_inputs, node_padding_mask,
+                             edge_mask, current_index,
+                             current_edge, edge_padding_mask)
+        
+        # 更新存储器
+        self._write_memory(current_coord, node_inputs[current_index])
+        
+        return logp, q_values
+    
+    def _read_memory(self, query):
+        attention = torch.matmul(query, self.memory.t())
+        attention = F.softmax(attention, dim=-1)
+        read_content = torch.matmul(attention, self.memory)
+        return self.read_head(read_content)
+    
+    def _write_memory(self, query, content):
+        write_content = self.write_head(content)
+        attention = torch.matmul(query, self.memory.t())
+        attention = F.softmax(attention, dim=-1)
+        self.memory.data = self.memory.data * (1 - attention.unsqueeze(-1)) + \
+                          write_content.unsqueeze(1) * attention.unsqueeze(-1)
