@@ -90,7 +90,7 @@ class Env:
         map_list = os.listdir(map_dir)
         map_index = episode_index % np.size(map_list)
         self.map_path = map_dir + '/' + map_list[map_index]
-        
+        print(f'Loading map: {self.map_path}')
         # 加载地图文件并转换为整数类型
         ground_truth = (io.imread(self.map_path, 1)).astype(int)
 

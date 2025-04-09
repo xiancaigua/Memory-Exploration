@@ -334,7 +334,8 @@ def main():
                               }
                 path_checkpoint = "./" + model_path + "/checkpoint.pth"
                 torch.save(checkpoint, path_checkpoint)
-                print('Saved model', end='\n')
+                # print('Saved model', end='\n')
+                print('Model saved to', path_checkpoint, end='\n')
 
     except KeyboardInterrupt:
         print("CTRL_C pressed. Killing remote workers")

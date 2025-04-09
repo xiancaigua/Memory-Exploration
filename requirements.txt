@@ -1,0 +1,6 @@
+imageio==2.35.1
+matplotlib==3.7.5
+numpy==1.24.4
+ray==2.10.0
+skimage==0.0
+torch==1.13.1+cu116
