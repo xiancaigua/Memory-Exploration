@@ -1,5 +1,14 @@
 __pycache__/
 gifs/
-train/
-results/
+img/
+maps/
+maps_medium/
 maps_medium_data/
+maps_test/
+model/
+results/
+train/
+
+*.pth
+*.pt
+*.onnx
