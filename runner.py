@@ -24,7 +24,7 @@ class Runner(object):
     
     def do_job(self, episode_number):
         # 执行一个任务周期，包括环境交互和性能指标计算。
-        save_img = True if episode_number % SAVE_IMG_GAP == 0 else False
+        save_img = True if (episode_number % SAVE_IMG_GAP == 0) else False
         # save_img = True
         worker = Multi_agent_worker(self.meta_agent_id, self.local_network, episode_number, device=self.device, save_image=save_img)
         worker.run_episode()

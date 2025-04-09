@@ -17,7 +17,7 @@ if not os.path.exists(gifs_path):
 
 # Multi_agent_worker 类用于管理多机器人系统的运行，包括环境交互、信念地图更新和任务执行。
 class Multi_agent_worker:
-    def __init__(self, meta_agent_id, policy_net, global_step, device='cpu', save_image=False):
+    def __init__(self, meta_agent_id, policy_net, global_step, device='cpu', save_image=True):
         # 初始化多机器人工作器，包括元代理 ID、策略网络、全局步数、设备和是否保存图像。
         self.meta_agent_id = meta_agent_id
         self.global_step = global_step
@@ -47,10 +47,12 @@ class Multi_agent_worker:
             self.ground_truth_node_manager = Ground_truth_node_manager(self.env.ground_truth_info, plot=True)
             with open(f'{data_path}.pkl', 'wb') as f:
                 pickle.dump(self.ground_truth_node_manager, f, pickle.HIGHEST_PROTOCOL)
-
+        # print("save_image",self.save_image)
         self.robot_list = [Agent(i, policy_net, deepcopy(self.env), deepcopy(self.ground_truth_node_manager), self.device, self.save_image) for i in
                            range(N_AGENTS)]
         
+        if self.save_image:
+            print("save image in episode : ",self.global_step)
         
         self.episode_buffer = []
         self.perf_metrics = dict()
@@ -207,11 +209,11 @@ class Multi_agent_worker:
                 self.robot_list[agent_id].save_done(done)
                 
 
-            if self.global_step % 500 > 480 or self.global_step % 500 == 0:
-                self.save_image = True
-            else:
-                self.save_image = False
-
+            # if self.global_step % 500 > 480 or self.global_step % 500 == 0:
+            #     self.save_image = True
+            # else:
+            #     self.save_image = False
+            
             if self.save_image:
                 self.plot_local_env(i)
 
