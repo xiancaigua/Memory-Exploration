@@ -86,10 +86,18 @@ class Env:
         if self.test:
             map_dir = f'maps_test'
         
+        
+
         # 获取地图文件列表并选择当前任务对应的地图文件
         map_list = os.listdir(map_dir)
-        map_index = episode_index % np.size(map_list)
+        if EXPERIMENT_MODE == 'origin':
+            map_index = episode_index % np.size(map_list)
+        else:
+            map_index = (episode_index % (TOTAL_SCENARIO * REPLAY_TIMES)) // REPLAY_TIMES + 1
+        
         self.map_path = map_dir + '/' + map_list[map_index]
+        # ex专用
+        # self.map_path = map_dir + '/' + "2343.png"
         print(f'Loading map: {self.map_path}')
         # 加载地图文件并转换为整数类型
         ground_truth = (io.imread(self.map_path, 1)).astype(int)

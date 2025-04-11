@@ -8,11 +8,11 @@ import numpy as np
 import random
 
 from parameter import *
-from model import PolicyNet, QNet
+from model import PolicyNet, QNet, NeuralTuringMachine
 from runner import RLRunner
 # tune the GPU
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-# python driver.py > loggings/log04-09-1630.txt 2>&1 &
+# python driver.py > loggings/log04-11-ntm1-ntm.txt 2>&1 &
 
 ray.init()
 print("Welcome to RL autonomous exploration!")
@@ -54,6 +54,16 @@ def main():
     curr_episode = 0
     target_q_update_counter = 1
 
+    if EXPERIMENT_MODE == 'ntm':
+        neural_turing_machine = NeuralTuringMachine(
+            input_dim=EMBEDDING_DIM,
+            output_dim=EMBEDDING_DIM,
+            memory_size=20,
+            memory_dim=EMBEDDING_DIM,
+            num_heads=2,
+            batch_size=BATCH_SIZE,
+            device=device
+        )
     # load model and optimizer trained before
     if LOAD_MODEL:
         print('Loading Model...')
@@ -107,7 +117,7 @@ def main():
     for i, meta_agent in enumerate(meta_agents):
         curr_episode += 1
         # job_list.append(meta_agent.job.remote(weights_set, curr_episode))
-        job_list.append(meta_agent.job.remote(weights_set, curr_episode))
+        job_list.append(meta_agent.job.remote(weights_set, curr_episode, neural_turing_machine))
 
     # initialize metric collector
     metric_name = ['travel_dist', 'success_rate', 'explored_rate']
@@ -328,7 +338,7 @@ def main():
                 global_target_q_net2.eval()
 
             # save the model
-            if curr_episode % 32 == 0:
+            if curr_episode % SAVE_WINDOW == 0:
                 print('Saving model', end='\n')
                 checkpoint = {"policy_model": global_policy_net.state_dict(),
                               "q_net1_model": global_q_net1.state_dict(),
@@ -340,7 +350,7 @@ def main():
                               "log_alpha_optimizer": log_alpha_optimizer.state_dict(),
                               "episode": curr_episode,
                               }
-                path_checkpoint = "./" + model_path + "/checkpoint.pth"
+                path_checkpoint = "./" + model_path + "/{}_checkpoint.pth".format(curr_episode)
                 torch.save(checkpoint, path_checkpoint)
                 # print('Saved model', end='\n')
                 print('Model saved to', path_checkpoint, end='\n')

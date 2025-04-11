@@ -5,7 +5,7 @@ import matplotlib.gridspec as gridspec
 from copy import deepcopy
 
 from env import Env
-from agent import Agent
+from agent import Agent,MemoryAgent
 from parameter import *
 from utils import *
 from ground_truth_node_manager import Ground_truth_node_manager
@@ -17,7 +17,7 @@ if not os.path.exists(gifs_path):
 
 # Multi_agent_worker 类用于管理多机器人系统的运行，包括环境交互、信念地图更新和任务执行。
 class Multi_agent_worker:
-    def __init__(self, meta_agent_id, policy_net, global_step, device='cpu', save_image=True):
+    def __init__(self, meta_agent_id, policy_net, global_step, neural_turing_machine, device='cpu', save_image=True):
         # 初始化多机器人工作器，包括元代理 ID、策略网络、全局步数、设备和是否保存图像。
         self.meta_agent_id = meta_agent_id
         self.global_step = global_step
@@ -51,6 +51,14 @@ class Multi_agent_worker:
         self.robot_list = [Agent(i, policy_net, deepcopy(self.env), deepcopy(self.ground_truth_node_manager), self.device, self.save_image) for i in
                            range(N_AGENTS)]
         
+        
+        if EXPERIMENT_MODE == 'ntm':
+            print("ntm mode")
+            self.ntm = MemoryAgent(neural_turing_machine)
+        elif EXPERIMENT_MODE == 'gen':
+            pass
+
+
         if self.save_image:
             print("save image in episode : ",self.global_step)
         
@@ -97,8 +105,8 @@ class Multi_agent_worker:
 
                 local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index, current_local_edge, local_edge_padding_mask = local_observation
                 current_coord = torch.tensor(robot.location, dtype=torch.float32, device=self.device).reshape(1, 1, 2)
-                enhanced_node_feature, current_state_feature = robot.policy_net.get_current_state_feature(local_node_inputs, local_node_padding_mask, 
-                                                                                                          local_edge_mask, current_local_index,current_coord)
+                enhanced_node_feature, current_state_feature = robot.get_local_embedding(local_node_inputs, local_node_padding_mask, 
+                                                                                        local_edge_mask, current_local_index,current_coord)
                 # send detached current_state_feature to other robots
                 self.send_msg(current_state_feature.detach(), robot.id)
 
@@ -235,7 +243,8 @@ class Multi_agent_worker:
             next_local_node_inputs, next_local_node_padding_mask, next_local_edge_mask, next_current_local_index, next_current_local_edge, next_local_edge_padding_mask = next_local_observation
 
             current_coord = torch.tensor(robot.location, dtype=torch.float32, device=self.device).reshape(1, 1, 2)
-            enhanced_node_feature, next_current_state_feature = robot.policy_net.get_current_state_feature(next_local_node_inputs, next_local_node_padding_mask, next_local_edge_mask, next_current_local_index,current_coord)
+            enhanced_node_feature, next_current_state_feature = robot.get_local_embedding(next_local_node_inputs, next_local_node_padding_mask, 
+                                                                                            next_local_edge_mask, next_current_local_index,current_coord)
             temp_next_msgs.append(next_current_state_feature.detach())
 
         for robot in self.robot_list:
@@ -304,8 +313,9 @@ class Multi_agent_worker:
             
             
         plt.tight_layout()
-        plt.savefig('{}/{}_{}_samples.png'.format(gifs_path, self.global_step, step), dpi=150)
-        frame = '{}/{}_{}_samples.png'.format(gifs_path, self.global_step, step)
+        map_index = self.env.map_path.split('/')[-1].split('.')[0]
+        frame = '{}/{}_{}_{}_samples.png'.format(gifs_path, map_index, self.global_step, step)
+        plt.savefig(frame, dpi=150)
         self.env.frame_files.append(frame)
         plt.close()
     

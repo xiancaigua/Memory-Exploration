@@ -5,6 +5,47 @@ from utils import *
 from parameter import *
 from test_parameter import *
 from local_node_manager_quadtree import Local_node_manager
+from model import *
+
+class MemoryAgent:
+    """
+    集体记忆模块，负责维护集中记忆，并通过 NeuralTuringMachine 实现核心功能。
+    """
+    def __init__(self, neural_turing_machine : NeuralTuringMachine, device='cpu', plot=False):
+        """
+        :param neural_turing_machine: NeuralTuringMachine 实例
+        :param device: 设备类型（'cpu' 或 'cuda'）
+        """
+        self.ntm = neural_turing_machine.to(device)
+        self.batch_size = neural_turing_machine.batch_size
+        self.input_size = neural_turing_machine.input_size
+        self.output_size = neural_turing_machine.output_size
+        self.device = device
+        self.plot = plot
+        
+    # def __init__(self, input_size, output_size, controller_size, 
+    #              memory_size, memory_vector_size, num_heads, 
+    #              batch_size = N_AGENTS):
+    #     self.ntm = NeuralTuringMachine(input_size, output_size, controller_size, memory_size, memory_vector_size, num_heads, batch_size).cuda()
+    #     self.batch_size = batch_size
+    #     self.input_size = input_size
+    #     self.output_size = output_size
+    
+    def process(self, robot_inputs):
+        """
+        所有机器人将自己的状态 embedding 提交进来，记忆模块统一处理。
+        :param robot_inputs: [B, input_size] 的状态嵌入向量
+        :return: [B, output_size] 的记忆读取向量（供每个 agent 使用）
+        """
+        assert robot_inputs.shape == torch.Size([self.batch_size, self.input_size]), f"batch size mismatch: {robot_inputs.shape} vs {torch.Size([self.batch_size, self.input_size])}"
+        # 处理每个机器人的输入
+        return self.ntm(robot_inputs)
+
+    def get_memory(self):
+        """
+        获取当前共享记忆内容（可用于可视化、调试）
+        """
+        return self.ntm.memory
 
 
 # Agent 类表示一个机器人代理，负责感知、规划和执行动作。
@@ -262,7 +303,8 @@ class Agent:
         with torch.no_grad():
             local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index, current_local_edge, local_edge_padding_mask = local_observation
             current_coord = torch.tensor(self.location, dtype=torch.float32).reshape(1, 1, 2).to(self.device)
-            logp = self.policy_net(local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index, current_local_edge, local_edge_padding_mask, current_coord, msg_stacked)
+            logp = self.policy_net(local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index, 
+                                   current_local_edge, local_edge_padding_mask, current_coord, msg_stacked)
 
         action_index = torch.multinomial(logp.exp(), 1).long().squeeze(1)
         next_node_index = current_local_edge[0, action_index.item(), 0].item()
@@ -354,6 +396,14 @@ class Agent:
 
         return local_map_info
 
+    def get_local_embedding(self, local_node_inputs, local_node_padding_mask, 
+                            local_edge_mask, current_local_index, 
+                            current_coord):
+        
+        return self.policy_net.get_current_state_feature(local_node_inputs, local_node_padding_mask,
+                                                         local_edge_mask, current_local_index,
+                                                         current_coord)
+
     def save_observation(self, local_observation, stacked_msg):
         # 保存当前的观测信息。
         local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index, current_local_edge, local_edge_padding_mask = local_observation
@@ -426,7 +476,6 @@ class Agent:
         self.ground_truth_episode_buffer[9] += current_local_index
         self.ground_truth_episode_buffer[10] += current_local_edge
         self.ground_truth_episode_buffer[11] += local_edge_padding_mask.bool()
-        
         
 
     def get_no_padding_observation(self):

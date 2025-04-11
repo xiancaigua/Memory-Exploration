@@ -13,6 +13,7 @@ class Runner(object):
         self.device = torch.device('cuda') if USE_GPU else torch.device('cpu')
         self.local_network = PolicyNet(LOCAL_NODE_INPUT_DIM, EMBEDDING_DIM)
         self.local_network.to(self.device)
+        self.neural_turing_machine = None
 
     def get_weights(self):
         # 获取当前策略网络的权重。
@@ -26,7 +27,7 @@ class Runner(object):
         # 执行一个任务周期，包括环境交互和性能指标计算。
         save_img = True if (episode_number % SAVE_IMG_GAP == 0) else False
         # save_img = True
-        worker = Multi_agent_worker(self.meta_agent_id, self.local_network, episode_number, device=self.device, save_image=save_img)
+        worker = Multi_agent_worker(self.meta_agent_id, self.local_network, self.neural_turing_machine, episode_number, device=self.device, save_image=save_img)
         worker.run_episode()
 
         job_results = worker.episode_buffer
@@ -34,10 +35,11 @@ class Runner(object):
         perf_metrics = worker.perf_metrics
         return job_results, ground_truth_job_results, perf_metrics
     
-    def job(self, weights_set, episode_number):
+    def job(self, weights_set, episode_number, neural_turing_machine):
         # 分配任务并返回结果，包括任务数据和性能指标。
         print("starting episode {} on metaAgent {}".format(episode_number, self.meta_agent_id))
         self.set_policy_net_weights(weights_set[0])
+        self.neural_turing_machine = neural_turing_machine
 
         job_results, ground_truth_job_results, metrics = self.do_job(episode_number)
 

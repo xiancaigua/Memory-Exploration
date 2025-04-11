@@ -1,24 +1,37 @@
-FOLDER_NAME = 'amadeus1'
+FOLDER_NAME = 'ntm1'
 model_path = f'model/{FOLDER_NAME}'
 train_path = f'train/{FOLDER_NAME}'
 gifs_path = f'gifs/{FOLDER_NAME}'
 SUMMARY_WINDOW = 32
+SAVE_WINDOW = 100
 LOAD_MODEL = False  # do you want to load the model trained before
-SAVE_IMG_GAP = 100
+SAVE_IMG_GAP = 100  # 100
+EXPERIMENT_MODE = 'ntm' # code of experiment
+# base ; ntm ; gen ; origin
 
 N_AGENTS = 4
+#########################################
+# Continual Learning parameters
+REPLAY_TIMES = 100
+TOTAL_SCENARIO = 6
+
+#########################################
+# Environment parameters
 
 CELL_SIZE = 0.4  # meter
 NODE_RESOLUTION = 4.0 # meter
 DOWNSAMPLE_SIZE = NODE_RESOLUTION // CELL_SIZE
 
-SENSOR_RANGE = 20  # meter
+SENSOR_RANGE = 10  # meter  20
 UTILITY_RANGE = 0.8 * SENSOR_RANGE
 MIN_UTILITY = 1
 FRONTIER_CELL_SIZE = 4 * CELL_SIZE
 
-LOCAL_MAP_SIZE = 40  # meter
+LOCAL_MAP_SIZE = 20  # meter  40
 EXTENDED_LOCAL_MAP_SIZE = 6 * SENSOR_RANGE * 1.05
+
+#########################################
+# Learning parameters
 
 MAX_EPISODE_STEP = 128
 REPLAY_SIZE = 10000
