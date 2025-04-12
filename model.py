@@ -233,8 +233,15 @@ class Decoder(nn.Module):
     def __init__(self, embedding_dim=128, n_head=8, n_layer=1):
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList([DecoderLayer(embedding_dim, n_head) for i in range(n_layer)])
+        self.memory_merger = nn.Linear(embedding_dim * 2, embedding_dim)
 
-    def forward(self, tgt, memory, key_padding_mask=None, attn_mask=None):
+    def forward(self, tgt, memory, collective_memory=None, key_padding_mask=None, attn_mask=None):
+        if collective_memory is not None:
+            if len(collective_memory.shape) ==2:
+                collective_memory = collective_memory.unsqueeze(1)  # 训练时有多个机器人的embedding形状为BATCH*1*N
+            elif len(collective_memory.shape) ==1:
+                collective_memory = collective_memory.unsqueeze(0).unsqueeze(0) # 跑数据时只有单个机器人的单个embedding形状为N
+            tgt = self.memory_merger(torch.cat((tgt, collective_memory), dim=-1))
         for layer in self.layers:
             tgt, w = layer(tgt, memory, key_padding_mask=key_padding_mask, attn_mask=attn_mask)
         return tgt, w
@@ -264,19 +271,20 @@ class PolicyNet(nn.Module):
         embedding_dim = enhanced_node_feature.size()[2]
         current_node_feature = torch.gather(enhanced_node_feature, 1,
                                                  current_index.repeat(1, 1, embedding_dim))
-        enhanced_current_node_feature, _ = self.self_state_decoder(current_node_feature,
-                                                                        enhanced_node_feature,
-                                                                        node_padding_mask)
+        enhanced_current_node_feature, _ = self.self_state_decoder(tgt = current_node_feature,
+                                                                    memory = enhanced_node_feature,
+                                                                    key_padding_mask = node_padding_mask)
 
         return current_node_feature, enhanced_current_node_feature
     
     def merge_msg(self, msg_stacked):
         return self.msg_merger(msg_stacked)
 
-    def decode_cooperative_state(self, current_state_feature, msg_stacked):
+    def decode_cooperative_state(self, current_state_feature, msg_stacked, memory_vector = None):
 
-        enhanced_cooperative_state_feature, _, = self.cooperative_state_decoder(current_state_feature,
-                                                                        msg_stacked)
+        enhanced_cooperative_state_feature, _, = self.cooperative_state_decoder(tgt = current_state_feature,
+                                                                        memory = msg_stacked, 
+                                                                        collective_memory = memory_vector)
 
         return enhanced_cooperative_state_feature
     
@@ -307,12 +315,13 @@ class PolicyNet(nn.Module):
 
 
     def forward(self, node_inputs, node_padding_mask, edge_mask, current_index,
-                current_edge, edge_padding_mask, current_coord, msg_stacked):
+                current_edge, edge_padding_mask, current_coord, msg_stacked, memory_vector = None):
         
         enhanced_node_feature, current_state_feature = self.get_current_state_feature(node_inputs, node_padding_mask, edge_mask, current_index, current_coord)
 
         enhanced_cooperative_state_feature = self.decode_cooperative_state(current_state_feature,
-                                                                                     msg_stacked)
+                                                                                     msg_stacked, 
+                                                                                     memory_vector = memory_vector)
         logp = self.output_policy(enhanced_node_feature, enhanced_cooperative_state_feature,
                                   current_edge, edge_padding_mask)
         return logp
@@ -343,9 +352,9 @@ class QNet(nn.Module):
         current_local_node_feature = torch.gather(enhanced_local_node_feature, 1,
                                                   current_local_index.repeat(1, 1, embedding_dim))
 
-        enhanced_current_local_node_feature, _ = self.local_decoder(current_local_node_feature,
-                                                                    enhanced_local_node_feature,
-                                                                    local_node_padding_mask)
+        enhanced_current_local_node_feature, _ = self.local_decoder(tgt = current_local_node_feature,
+                                                                    memory = enhanced_local_node_feature,
+                                                                    key_padding_mask = local_node_padding_mask)
         
 
         return current_local_node_feature, enhanced_current_local_node_feature
@@ -378,19 +387,22 @@ class QNet(nn.Module):
 
 class NeuralTuringMachine(nn.Module):
     def __init__(self, input_size, output_size, controller_size, memory_size, 
-                 memory_vector_size, num_heads=1, batch_size=1):
+                 memory_vector_size, num_heads=1, batch_size=1, train_device='cpu'):
         super(NeuralTuringMachine, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
         self.batch_size = batch_size
-
         self.controller_size = controller_size
         self.memory_size = memory_size
         self.memory_vector_size = memory_vector_size
-
         self.num_heads = num_heads
 
-        self.memory = torch.zeros(self.memory_size, self.memory_vector_size).cuda()
+        self.cur_episode = 0
+        self.mode = 'working'
+        self.train_device = train_device
+        self.device = train_device
+
+        self.memory = torch.zeros(self.memory_size, self.memory_vector_size)
         # 初始化控制器
         self.controller = nn.LSTMCell(input_size, controller_size)
 
@@ -414,25 +426,64 @@ class NeuralTuringMachine(nn.Module):
         self.output_layer = nn.Linear(controller_size + memory_vector_size * num_heads, output_size)
 
         self.ntm_state = self.init_state(batch_size)
-
+    def set_train_mode(self, batch_size):
+        self.mode = 'training'
+        self.device = self.train_device
+        self.batch_size = batch_size
+        self.ntm_state = self.init_state(self.batch_size)
+        
+        self.memory = self.memory.to(self.device)
+        self.ntm_state['controller_state'][0] = self.ntm_state['controller_state'][0].to(self.device)
+        self.ntm_state['controller_state'][1] = self.ntm_state['controller_state'][1].to(self.device)
+        for i in range(self.num_heads):
+            self.ntm_state['read_weights'][i]=  self.ntm_state['read_weights'][i].to(self.device)
+            self.ntm_state['write_weights'][i] = self.ntm_state['write_weights'][i].to(self.device)
+        self.to(self.device)
+    def set_work_mode(self):
+        self.mode = 'working'
+        self.device = 'cpu'
+        self.batch_size = 1
+        self.ntm_state = self.init_state(self.batch_size)
+        
+        self.memory = self.memory.to(self.device)
+        self.ntm_state['controller_state'][0] = self.ntm_state['controller_state'][0].to(self.device)
+        self.ntm_state['controller_state'][1] = self.ntm_state['controller_state'][1].to(self.device)
+        for i in range(self.num_heads):
+            self.ntm_state['read_weights'][i]=  self.ntm_state['read_weights'][i].to(self.device)
+            self.ntm_state['write_weights'][i] = self.ntm_state['write_weights'][i].to(self.device)
+        self.to(self.device)
     def init_state(self, batch_size):
 
-        controller_state = (torch.zeros(batch_size, self.controller_size).cuda(),
-                            torch.zeros(batch_size, self.controller_size).cuda())
-
-        read_weights = [torch.zeros(batch_size, self.memory_size).cuda() for _ in range(self.num_heads)]
-        write_weights = [torch.zeros(batch_size, self.memory_size).cuda() for _ in range(self.num_heads)]
-
+        controller_state = [torch.zeros(batch_size, self.controller_size),
+                            torch.zeros(batch_size, self.controller_size)]
+        read_weights = [torch.zeros(batch_size, self.memory_size) for _ in range(self.num_heads)]
+        write_weights = [torch.zeros(batch_size, self.memory_size) for _ in range(self.num_heads)]
         return {
             'controller_state': controller_state,
             'read_weights': read_weights,
             'write_weights': write_weights
         }
+    def set_state(self, state):
+        for i in range(self.batch_size):
+            self.ntm_state['controller_state'][0][i] = state[i]['controller_state'][0]
+            self.ntm_state['controller_state'][1][i] = state[i]['controller_state'][1]
+            for j in range(self.num_heads):
+                self.ntm_state['read_weights'][j][i] = state[i]['read_weights'][j]
+                self.ntm_state['write_weights'][j][i] = state[i]['write_weights'][j]
+    def get_state(self):
+        state = {}
+        state['controller_state'] = [self.ntm_state['controller_state'][0].detach(),
+                                     self.ntm_state['controller_state'][1].detach()]
+        state['read_weights'] = [self.ntm_state['read_weights'][i].detach() for i in range(self.num_heads)]
+        state['write_weights'] = [self.ntm_state['write_weights'][i].detach() for i in range(self.num_heads)]
+        return state
     def forward(self, now_embedding):
-        self.ntm_state['controller_state'] = self.controller(now_embedding, 
+        # now_embedding = now_embedding.to(self.device) # Batch x Input
+        self.ntm_state['controller_state'][0],self.ntm_state['controller_state'][1] = self.controller(now_embedding, 
                                                              self.ntm_state['controller_state'])
         reads = self.read()
-        self.write()
+        if self.mode != 'training':
+            self.write()
         output = self.output_layer(torch.cat([self.ntm_state['controller_state'][0], reads], dim=1))
         return output
     def read(self):
@@ -455,7 +506,7 @@ class NeuralTuringMachine(nn.Module):
         return torch.cat(read_vectors, dim=1)
     def write(self):
         batched_memories = torch.zeros(self.num_heads, self.batch_size, 
-                                       self.memory_size, self.memory_vector_size).cuda()
+                                       self.memory_size, self.memory_vector_size).to(self.device)
         batched_memory = self.memory.unsqueeze(0).expand(self.batch_size,-1,-1)
         for i in range(self.num_heads):
             h = self.ntm_state['controller_state'][0]
@@ -477,6 +528,8 @@ class NeuralTuringMachine(nn.Module):
         mean_batched_memories = torch.mean(batched_memories, dim=0)
         self.memory = torch.mean(mean_batched_memories, dim=0)
 
+    def update_memory(self, new_memory):
+        self.memory = new_memory
     def _address_memory(self, prev_weight, key, beta, gate, shift, gamma):
         content_weight = self._content_addressing(key, beta)
         weight = gate * content_weight + (1 - gate) * prev_weight
@@ -500,37 +553,35 @@ class NeuralTuringMachine(nn.Module):
         # shift 是 [B, 3]，我们想把它广播乘以 shift_stack，然后 sum over dim=2
         shifted_result = torch.sum(shift_stack * shift.unsqueeze(1), dim=2)  # [B, N]
         return shifted_result
-    # def _circular_convolution(self, weight, shift):
-    #     batch_size, mem_size = weight.size()
-    #     shifted = torch.zeros_like(weight)
-    #     shift_vals = [-1, 0, 1]
-    #     for b in range(batch_size):
-    #         for i, s in enumerate(shift_vals):
-    #             shifted[b] += shift[b, i] * torch.roll(weight[b], shifts=s, dims=0)
-    #     return shifted
     def _sharpen(self, weight, gamma):
         weight = weight ** gamma
         return weight / (weight.sum(dim=1, keepdim=True) + 1e-6)
+    def inspect_memory(self, topk=5):
+        print("Memory Norm (avg):", self.memory.norm(dim=1).mean().item())
+        top_slots = self.memory.norm(dim=1).topk(topk)
+        print("Top activated memory slots:", top_slots)
+
     
 
 if __name__ == '__main__':
     # 定义模型参数
-    input_size = 10
-    output_size = 5
-    controller_size = 20
-    memory_size = 16
-    memory_vector_size = 8
+    input_size = 16
+    output_size = 16
+    controller_size = 80
+    memory_size = 20
+    memory_vector_size = 16
     num_heads = 2
-    batch_size = 4
-    sequence_length = 6
+    batch_size = 1
+    sequence_length = 128 * 20
 
     # 初始化模型
     ntm = NeuralTuringMachine(input_size, output_size, controller_size, memory_size,
                                memory_vector_size, num_heads, batch_size)
-    ntm = ntm.cuda()  # 如果有 GPU 可用
+    # ntm = ntm.cuda()  # 如果有 GPU 可用
+    ntm.set_work_mode()
 
     # 初始化输入
-    inputs = torch.randn(batch_size, sequence_length, input_size).cuda()
+    inputs = torch.randn(batch_size, sequence_length, input_size)
 
     # 测试前向传播
     for t in range(sequence_length):

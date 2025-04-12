@@ -54,7 +54,7 @@ class Multi_agent_worker:
         
         if EXPERIMENT_MODE == 'ntm':
             print("ntm mode")
-            self.ntm = MemoryAgent(neural_turing_machine)
+            self.ntm = MemoryAgent(deepcopy(neural_turing_machine), device=self.device)
         elif EXPERIMENT_MODE == 'gen':
             pass
 
@@ -64,7 +64,7 @@ class Multi_agent_worker:
         
         self.episode_buffer = []
         self.perf_metrics = dict()
-        for _ in range(19):
+        for _ in range(21):
             self.episode_buffer.append([])
             
         self.ground_truth_episode_buffer = []
@@ -96,6 +96,10 @@ class Multi_agent_worker:
             ground_truth_observations = [] 
             next_ground_truth_observations = []
 
+            if EXPERIMENT_MODE == "ntm":
+                memory_vector = torch.zeros((self.n_agent, self.ntm.input_size), dtype=torch.float32, device=self.device)
+            else:
+                memory_vector = None
             # send msg
             for robot in self.robot_list:
                 local_observation = robot.get_local_observation()
@@ -107,9 +111,15 @@ class Multi_agent_worker:
                 current_coord = torch.tensor(robot.location, dtype=torch.float32, device=self.device).reshape(1, 1, 2)
                 enhanced_node_feature, current_state_feature = robot.get_local_embedding(local_node_inputs, local_node_padding_mask, 
                                                                                         local_edge_mask, current_local_index,current_coord)
+                if EXPERIMENT_MODE == "ntm":
+                    current_memory_state = self.ntm.get_memory_state()
+                    robot.save_memory_state(current_memory_state)
+                    memory_vector[robot.id, : ] = self.ntm.process(current_state_feature.squeeze(1))
+                    robot.save_memory_query(current_state_feature)
                 # send detached current_state_feature to other robots
                 self.send_msg(current_state_feature.detach(), robot.id)
 
+            
             for robot in self.robot_list:
                 # ground truth observation
                 ground_truth_obsesrvation = robot.get_ground_truth_observation()
@@ -123,8 +133,9 @@ class Multi_agent_worker:
                 stacked_msg = robot.get_stacked_msg()
 
                 robot.save_observation(local_observation, stacked_msg)
-
-                next_location, next_node_index, action_index = robot.select_next_waypoint(local_observation, stacked_msg)
+                
+                
+                next_location, next_node_index, action_index = robot.select_next_waypoint(local_observation, stacked_msg, memory_vector[robot.id, :])
                 robot.save_action(action_index)
                 
                 node = robot.local_node_manager.local_nodes_dict.find((robot.location[0], robot.location[1]))

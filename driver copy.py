@@ -10,10 +10,10 @@ from copy import deepcopy
 
 from parameter import *
 from model import PolicyNet, QNet, NeuralTuringMachine
-from runner import RLRunner,Runner
+from runner import RLRunner
 # tune the GPU
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-# python driver.py > loggings/log04-12-ntm1-ntm.txt 2>&1 &
+# python driver.py > loggings/log04-11-ntm1-ntm.txt 2>&1 &
 
 ray.init()
 print("Welcome to RL autonomous exploration!")
@@ -64,13 +64,9 @@ def main():
             memory_vector_size=EMBEDDING_DIM,
             num_heads=2,
             batch_size=BATCH_SIZE,
-            train_device=device
         )
         neural_turing_machine.to(device)
         ntm_optimizer = optim.Adam(neural_turing_machine.parameters(), lr=LR)
-    else:
-        neural_turing_machine = None
-        ntm_optimizer = None
     # load model and optimizer trained before
     if LOAD_MODEL:
         print('Loading Model...')
@@ -100,12 +96,9 @@ def main():
     global_target_q_net1.eval()
     global_target_q_net2.eval()
     
-    if USE_MULTI_THREAD:
-        # launch meta agents
-        meta_agents = [RLRunner.remote(i) for i in range(NUM_META_AGENT)]
-    else:
-        # for debug
-        meta_agent = Runner(0)
+    # launch meta agents
+    meta_agents = [RLRunner.remote(i) for i in range(NUM_META_AGENT)]
+
     # get global networks weights
     weights_set = []
     if device != local_device:
@@ -116,26 +109,18 @@ def main():
     weights_set.append(policy_weights)
 
     # distributed training if multiple GPUs available
-    if USE_GPU_GLOBAL:
-        dp_policy = nn.DataParallel(global_policy_net)
-        dp_q_net1 = nn.DataParallel(global_q_net1)
-        dp_q_net2 = nn.DataParallel(global_q_net2)
-        dp_target_q_net1 = nn.DataParallel(global_target_q_net1)
-        dp_target_q_net2 = nn.DataParallel(global_target_q_net2)
-    else:
-        dp_policy = global_policy_net.to(device)
-        dp_q_net1 = global_q_net1.to(device)
-        dp_q_net2 = global_q_net2.to(device)
-        dp_target_q_net1 = global_target_q_net1.to(device)
-        dp_target_q_net2 = global_target_q_net2.to(device)
+    dp_policy = nn.DataParallel(global_policy_net)
+    dp_q_net1 = nn.DataParallel(global_q_net1)
+    dp_q_net2 = nn.DataParallel(global_q_net2)
+    dp_target_q_net1 = nn.DataParallel(global_target_q_net1)
+    dp_target_q_net2 = nn.DataParallel(global_target_q_net2)
     
     # launch the first job on each runner
-    if USE_MULTI_THREAD:
-        job_list = []
-        for i, meta_agent in enumerate(meta_agents):
-            curr_episode += 1
-            # job_list.append(meta_agent.job.remote(weights_set, curr_episode))
-            job_list.append(meta_agent.job.remote(weights_set, curr_episode, neural_turing_machine))
+    job_list = []
+    for i, meta_agent in enumerate(meta_agents):
+        curr_episode += 1
+        # job_list.append(meta_agent.job.remote(weights_set, curr_episode))
+        job_list.append(meta_agent.job.remote(weights_set, curr_episode, neural_turing_machine))
 
     # initialize metric collector
     metric_name = ['travel_dist', 'success_rate', 'explored_rate']
@@ -147,7 +132,7 @@ def main():
     # initialize training replay buffer
     experience_buffer = []
     ground_truth_experience_buffer = []
-    for _ in range(21):
+    for _ in range(20):
         experience_buffer.append([])
     for _ in range(12):
         ground_truth_experience_buffer.append([])
@@ -155,14 +140,10 @@ def main():
     # collect data from worker and do training
     try:
         while True:
-            if USE_MULTI_THREAD:
-                # wait for any job to be completed
-                done_id, job_list = ray.wait(job_list)
-                # get the results
-                done_jobs = ray.get(done_id)
-            else:
-                # for debug
-                done_jobs = [meta_agent.job(weights_set, curr_episode, neural_turing_machine)]
+            # wait for any job to be completed
+            done_id, job_list = ray.wait(job_list)
+            # get the results
+            done_jobs = ray.get(done_id)
 
             # save experience and metric
             for job in done_jobs:
@@ -232,21 +213,20 @@ def main():
                     next_robot_location = torch.stack(rollouts[17]).to(device)
                     next_stacked_msgs = torch.stack(rollouts[18]).to(device)
                     memory_query = torch.stack(rollouts[19]).to(device)
-                    memory_state = deepcopy(rollouts[20])
                     
-                    ground_truth_local_node_inputs = torch.stack(rollouts[21]).to(device)
-                    ground_truth_local_node_padding_mask = torch.stack(rollouts[22]).to(device)
-                    ground_truth_local_edge_mask = torch.stack(rollouts[23]).to(device)
-                    ground_truth_current_local_index = torch.stack(rollouts[24]).to(device)
-                    ground_truth_current_local_edge = torch.stack(rollouts[25]).to(device)
-                    ground_truth_local_edge_padding_mask = torch.stack(rollouts[26]).to(device)
+                    ground_truth_local_node_inputs = torch.stack(rollouts[20]).to(device)
+                    ground_truth_local_node_padding_mask = torch.stack(rollouts[21]).to(device)
+                    ground_truth_local_edge_mask = torch.stack(rollouts[22]).to(device)
+                    ground_truth_current_local_index = torch.stack(rollouts[23]).to(device)
+                    ground_truth_current_local_edge = torch.stack(rollouts[24]).to(device)
+                    ground_truth_local_edge_padding_mask = torch.stack(rollouts[25]).to(device)
                     
-                    ground_truth_next_local_node_inputs = torch.stack(rollouts[27]).to(device)
-                    ground_truth_next_local_node_padding_mask = torch.stack(rollouts[28]).to(device)
-                    ground_truth_next_local_edge_mask = torch.stack(rollouts[29]).to(device)
-                    ground_truth_next_current_local_index = torch.stack(rollouts[30]).to(device)
-                    ground_truth_next_current_local_edge = torch.stack(rollouts[31]).to(device)
-                    ground_truth_next_local_edge_padding_mask = torch.stack(rollouts[32]).to(device)
+                    ground_truth_next_local_node_inputs = torch.stack(rollouts[26]).to(device)
+                    ground_truth_next_local_node_padding_mask = torch.stack(rollouts[27]).to(device)
+                    ground_truth_next_local_edge_mask = torch.stack(rollouts[28]).to(device)
+                    ground_truth_next_current_local_index = torch.stack(rollouts[29]).to(device)
+                    ground_truth_next_current_local_edge = torch.stack(rollouts[30]).to(device)
+                    ground_truth_next_local_edge_padding_mask = torch.stack(rollouts[31]).to(device)
                     
 
                     observation = [local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index,
@@ -266,12 +246,9 @@ def main():
                         q_values2 = dp_q_net2(*ground_truth_obersevation)
                         q_values = torch.min(q_values1, q_values2)
                     
-                    neural_turing_machine.set_state(memory_state)
-                    neural_turing_machine.set_train_mode(batch_size=BATCH_SIZE)
-                    memory_vec = neural_turing_machine(memory_query.squeeze())
-                    logp = dp_policy(*observation, memory_vec)
-                    # for debug
-                    # logp = global_policy_net(*observation, memory_vec)
+                    neural_turing_machine.set_train_mode()
+                    memory_query = memory_query.unsqueeze(1).expand(N_AGENTS,-1,-1)
+                    logp = dp_policy(*observation, memory_query[ :, 0, :])
 
                     # print("logp", logp.device)
                     # print("q_values", q_values.device)
@@ -345,7 +322,6 @@ def main():
                         alpha_loss.item(), *perf_data]
                 
                 training_data.append(data)
-                print("training over-------------------------episode", curr_episode)
 
             # write record to tensorboard
             if len(training_data) >= SUMMARY_WINDOW:
@@ -393,9 +369,8 @@ def main():
 
     except KeyboardInterrupt:
         print("CTRL_C pressed. Killing remote workers")
-        if USE_MULTI_THREAD:
-            for a in meta_agents:
-                ray.kill(a)
+        for a in meta_agents:
+            ray.kill(a)
 
 
 def write_to_tensor_board(writer, tensorboard_data, curr_episode):

@@ -25,15 +25,20 @@ class Runner(object):
     
     def do_job(self, episode_number):
         # 执行一个任务周期，包括环境交互和性能指标计算。
+        current_memory = None
+
         save_img = True if (episode_number % SAVE_IMG_GAP == 0) else False
         # save_img = True
-        worker = Multi_agent_worker(self.meta_agent_id, self.local_network, self.neural_turing_machine, episode_number, device=self.device, save_image=save_img)
+        worker = Multi_agent_worker(self.meta_agent_id, self.local_network, episode_number, self.neural_turing_machine, device=self.device, save_image=save_img)
         worker.run_episode()
 
         job_results = worker.episode_buffer
         ground_truth_job_results = worker.ground_truth_episode_buffer
         perf_metrics = worker.perf_metrics
-        return job_results, ground_truth_job_results, perf_metrics
+
+        if EXPERIMENT_MODE == 'ntm':
+            current_memory = worker.ntm.get_memory()
+        return job_results, ground_truth_job_results, perf_metrics, current_memory
     
     def job(self, weights_set, episode_number, neural_turing_machine):
         # 分配任务并返回结果，包括任务数据和性能指标。
@@ -41,7 +46,7 @@ class Runner(object):
         self.set_policy_net_weights(weights_set[0])
         self.neural_turing_machine = neural_turing_machine
 
-        job_results, ground_truth_job_results, metrics = self.do_job(episode_number)
+        job_results, ground_truth_job_results, metrics, current_memory = self.do_job(episode_number)
 
         print("finished episode {} on metaAgent {}".format(episode_number, self.meta_agent_id))
 
@@ -51,7 +56,7 @@ class Runner(object):
         # print(f"Size of ground_truth_job_results: {sys.getsizeof(ground_truth_job_results)} bytes")
         # print(f"Size of metrics: {sys.getsizeof(metrics)} bytes")
         
-        return job_results, ground_truth_job_results, metrics, info
+        return job_results, ground_truth_job_results, metrics, current_memory, info
 
 
 @ray.remote(num_cpus=1, num_gpus=NUM_GPU / NUM_META_AGENT)

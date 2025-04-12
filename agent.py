@@ -1,4 +1,5 @@
 import copy
+from copy import deepcopy
 import numpy as np
 import torch
 from utils import *
@@ -17,6 +18,8 @@ class MemoryAgent:
         :param device: 设备类型（'cpu' 或 'cuda'）
         """
         self.ntm = neural_turing_machine.to(device)
+        self.ntm.set_work_mode()
+        # self.ntm.to(device)
         self.batch_size = neural_turing_machine.batch_size
         self.input_size = neural_turing_machine.input_size
         self.output_size = neural_turing_machine.output_size
@@ -39,13 +42,20 @@ class MemoryAgent:
         """
         assert robot_inputs.shape == torch.Size([self.batch_size, self.input_size]), f"batch size mismatch: {robot_inputs.shape} vs {torch.Size([self.batch_size, self.input_size])}"
         # 处理每个机器人的输入
-        return self.ntm(robot_inputs)
+        with torch.no_grad():
+            out = self.ntm(robot_inputs)
+        return out
 
     def get_memory(self):
         """
         获取当前共享记忆内容（可用于可视化、调试）
         """
-        return self.ntm.memory
+        return deepcopy(self.ntm.memory.detach())
+    def get_memory_state(self):
+        """
+        获取当前共享记忆内容的状态（可用于可视化、调试）
+        """
+        return self.ntm.get_state()
 
 
 # Agent 类表示一个机器人代理，负责感知、规划和执行动作。
@@ -108,7 +118,7 @@ class Agent:
         self.travel_dist = 0
 
         self.episode_buffer = []
-        for _ in range(19):
+        for _ in range(21):
             self.episode_buffer.append([])
             
         self.ground_truth_episode_buffer = []
@@ -297,14 +307,14 @@ class Agent:
         
         return [local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index, current_local_edge, local_edge_padding_mask]
 
-    def select_next_waypoint(self, local_observation, msg_stacked):
+    def select_next_waypoint(self, local_observation, msg_stacked, memory_vector = None):
         # 根据当前观测和消息选择下一个目标点。
         _, _, _, _, current_local_edge, _ = local_observation
         with torch.no_grad():
             local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index, current_local_edge, local_edge_padding_mask = local_observation
             current_coord = torch.tensor(self.location, dtype=torch.float32).reshape(1, 1, 2).to(self.device)
             logp = self.policy_net(local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index, 
-                                   current_local_edge, local_edge_padding_mask, current_coord, msg_stacked)
+                                   current_local_edge, local_edge_padding_mask, current_coord, msg_stacked, memory_vector)
 
         action_index = torch.multinomial(logp.exp(), 1).long().squeeze(1)
         next_node_index = current_local_edge[0, action_index.item(), 0].item()
@@ -477,6 +487,12 @@ class Agent:
         self.ground_truth_episode_buffer[10] += current_local_edge
         self.ground_truth_episode_buffer[11] += local_edge_padding_mask.bool()
         
+    def save_memory_query(self, memory_query):
+        # 保存记忆查询信息。
+        self.episode_buffer[19] += copy.deepcopy([memory_query.detach().squeeze(0)])
+    def save_memory_state(self, memory_state):
+        # 保存记忆状态信息。
+        self.episode_buffer[20] += copy.deepcopy([memory_state])
 
     def get_no_padding_observation(self):
         # 获取未填充的观测信息。
