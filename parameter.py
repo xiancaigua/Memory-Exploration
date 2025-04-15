@@ -1,4 +1,4 @@
-FOLDER_NAME = 'ntm1'
+FOLDER_NAME = 'ex4-1'
 model_path = f'model/{FOLDER_NAME}'
 train_path = f'train/{FOLDER_NAME}'
 gifs_path = f'gifs/{FOLDER_NAME}'
@@ -6,15 +6,15 @@ SUMMARY_WINDOW = 32
 SAVE_WINDOW = 100
 LOAD_MODEL = False  # do you want to load the model trained before
 SAVE_IMG_GAP = 100  # 100
-EXPERIMENT_MODE = 'ntm' # code of experiment
+EXPERIMENT_MODE = 'base' # code of experiment
 USE_MULTI_THREAD = True  # do you want to use multi-threading
 # base ; ntm ; gen ; origin
 
 N_AGENTS = 4
 #########################################
 # Continual Learning parameters
-REPLAY_TIMES = 100
-TOTAL_SCENARIO = 6
+REPLAY_TIMES = 300
+TOTAL_SCENARIO = 3
 
 #########################################
 # Environment parameters
@@ -34,6 +34,7 @@ EXTENDED_LOCAL_MAP_SIZE = 6 * SENSOR_RANGE * 1.05
 #########################################
 # Learning parameters
 
+PRIVILEDGED_INFO = True  # do you want to use privileged information
 NUM_META_AGENT = 8
 MAX_EPISODE_STEP = 128 # 128
 REPLAY_SIZE = 10000   # 10000
@@ -47,8 +48,8 @@ OTHER_INFO_INPUT_DIM = 3
 EMBEDDING_DIM = 16
 
 LOCAL_K_SIZE = 25  # the number of neighboring nodes
-LOCAL_NODE_PADDING_SIZE = 360  # the number of nodes will be padded to this value
+LOCAL_NODE_PADDING_SIZE = 720  # the number of nodes will be padded to this value  360
 
-USE_GPU = False  # do you want to collect training data using GPUs
-USE_GPU_GLOBAL = False  # do you want to train the network using GPUs
+USE_GPU = False  # do you want to collect training data using GPUs  NOT RECOMMENDED!!!
+USE_GPU_GLOBAL = True  # do you want to train the network using GPUs
 NUM_GPU = 1

@@ -135,7 +135,10 @@ class Multi_agent_worker:
                 robot.save_observation(local_observation, stacked_msg)
                 
                 
-                next_location, next_node_index, action_index = robot.select_next_waypoint(local_observation, stacked_msg, memory_vector[robot.id, :])
+                if EXPERIMENT_MODE == "ntm":
+                    next_location, next_node_index, action_index = robot.select_next_waypoint(local_observation, stacked_msg, memory_vector[robot.id, :])
+                else:
+                    next_location, next_node_index, action_index = robot.select_next_waypoint(local_observation, stacked_msg)
                 robot.save_action(action_index)
                 
                 node = robot.local_node_manager.local_nodes_dict.find((robot.location[0], robot.location[1]))

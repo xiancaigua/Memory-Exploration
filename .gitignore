@@ -1,8 +1,7 @@
 __pycache__/
+dungeon_data/
 gifs/
 loggings/
-img/
-maps/
 maps_medium/
 maps_medium_data/
 maps_test/
@@ -13,3 +12,5 @@ train/
 *.pth
 *.pt
 *.onnx
+*.png
+*.gif

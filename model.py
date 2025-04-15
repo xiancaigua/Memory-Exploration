@@ -230,10 +230,11 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, embedding_dim=128, n_head=8, n_layer=1):
+    def __init__(self, embedding_dim=128, n_head=8, n_layer=1, mode = 'base'):
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList([DecoderLayer(embedding_dim, n_head) for i in range(n_layer)])
-        self.memory_merger = nn.Linear(embedding_dim * 2, embedding_dim)
+        if mode == 'ntm':
+            self.memory_merger = nn.Linear(embedding_dim * 2, embedding_dim)
 
     def forward(self, tgt, memory, collective_memory=None, key_padding_mask=None, attn_mask=None):
         if collective_memory is not None:
@@ -247,7 +248,7 @@ class Decoder(nn.Module):
         return tgt, w
 
 class PolicyNet(nn.Module):
-    def __init__(self, node_dim, embedding_dim):
+    def __init__(self, node_dim, embedding_dim, mode = 'base'):
         super(PolicyNet, self).__init__()
 
         self.node_inputs_embedding = nn.Linear(node_dim, embedding_dim)
@@ -255,7 +256,7 @@ class PolicyNet(nn.Module):
 
         self.self_state_decoder = Decoder(embedding_dim=embedding_dim, n_head=8, n_layer=1)
 
-        self.cooperative_state_decoder = Decoder(embedding_dim=embedding_dim, n_head=8, n_layer=1)
+        self.cooperative_state_decoder = Decoder(embedding_dim=embedding_dim, n_head=8, n_layer=1, mode= mode)
 
         self.current_embedding = nn.Linear(embedding_dim * 2, embedding_dim)
         self.pointer = SingleHeadAttention(embedding_dim)
@@ -387,7 +388,7 @@ class QNet(nn.Module):
 
 class NeuralTuringMachine(nn.Module):
     def __init__(self, input_size, output_size, controller_size, memory_size, 
-                 memory_vector_size, num_heads=1, batch_size=1, train_device='cpu'):
+                 memory_vector_size, num_heads=1, batch_size=1, train_device='cpu',work_device='cpu'):
         super(NeuralTuringMachine, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -400,6 +401,7 @@ class NeuralTuringMachine(nn.Module):
         self.cur_episode = 0
         self.mode = 'working'
         self.train_device = train_device
+        self.work_device = work_device
         self.device = train_device
 
         self.memory = torch.zeros(self.memory_size, self.memory_vector_size)
@@ -441,7 +443,7 @@ class NeuralTuringMachine(nn.Module):
         self.to(self.device)
     def set_work_mode(self):
         self.mode = 'working'
-        self.device = 'cpu'
+        self.device = self.work_device
         self.batch_size = 1
         self.ntm_state = self.init_state(self.batch_size)
         

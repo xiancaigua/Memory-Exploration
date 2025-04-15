@@ -90,24 +90,31 @@ class Env:
 
         # 获取地图文件列表并选择当前任务对应的地图文件
         map_list = os.listdir(map_dir)
+        ordered_map_list = ['0complex.png','0maze.png','0mix.png']
+
         if EXPERIMENT_MODE == 'origin':
             map_index = episode_index % np.size(map_list)
         else:
-            map_index = (episode_index % (TOTAL_SCENARIO * REPLAY_TIMES)) // REPLAY_TIMES + 1
+            map_index = ((episode_index -1) // REPLAY_TIMES) % TOTAL_SCENARIO
         
-        self.map_path = map_dir + '/' + map_list[map_index]
-        # ex专用
-        # self.map_path = map_dir + '/' + "2343.png"
+        
+
+        # self.map_path = map_dir + '/' + map_list[map_index]
+        self.map_path = map_dir + '/' + ordered_map_list[map_index]
+        # self.map_path = map_dir + '/' + "dungeon/" + '11.png'
         print(f'Loading map: {self.map_path}')
         # 加载地图文件并转换为整数类型
         ground_truth = (io.imread(self.map_path, 1)).astype(int)
-
+        if np.all(ground_truth == 0):
+            # 使用了地牢系列地图
+            ground_truth = (io.imread(self.map_path, 1) * 255).astype(int)
+        
         # 对地图进行下采样，降低分辨率，每 2x2 像素块取最小值
         ground_truth = block_reduce(ground_truth, 2, np.min)
-        
+
         # 提取机器人初始位置，找到值为 208 的像素点，并选择第 10 个候选点
         robot_cell = np.array(np.nonzero(ground_truth == 208))
-        robot_cell = np.array([robot_cell[1, 10], robot_cell[0, 10]])
+        robot_cell = np.array([robot_cell[1, -1], robot_cell[0, -1]])
 
         # 将地图二值化，标记可通行区域和不可通行区域
         ground_truth = (ground_truth > 150) | ((ground_truth <= 80) & (ground_truth >= 50))

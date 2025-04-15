@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from test_worker import TestWorker
 from test_parameter import *
-from model import PolicyNet
+from model import PolicyNet,NeuralTuringMachine
 
 def run_test():
     device = torch.device('cuda') if USE_GPU else torch.device('cpu')

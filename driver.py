@@ -13,11 +13,10 @@ from model import PolicyNet, QNet, NeuralTuringMachine
 from runner import RLRunner,Runner
 # tune the GPU
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-# python driver.py > loggings/log04-12-ntm1-ntm.txt 2>&1 &
+# CUDA_VISIBLE_DEVICES=3 python driver.py > loggings/log04-14-ex4-1-base.txt 2>&1 &
 
 ray.init()
 print("Welcome to RL autonomous exploration!")
-
 writer = SummaryWriter(train_path)
 if not os.path.exists(model_path):
     os.makedirs(model_path)
@@ -34,7 +33,7 @@ def main():
     local_device = torch.device('cuda') if USE_GPU else torch.device('cpu')
 
     # initialize neural networks
-    global_policy_net = PolicyNet(LOCAL_NODE_INPUT_DIM, EMBEDDING_DIM).to(device)
+    global_policy_net = PolicyNet(LOCAL_NODE_INPUT_DIM, EMBEDDING_DIM,mode=EXPERIMENT_MODE).to(device)
     global_q_net1 = QNet(LOCAL_NODE_INPUT_DIM, EMBEDDING_DIM).to(device)
     global_q_net2 = QNet(LOCAL_NODE_INPUT_DIM, EMBEDDING_DIM).to(device)
     log_alpha = torch.FloatTensor([-2]).to(device)
@@ -64,7 +63,8 @@ def main():
             memory_vector_size=EMBEDDING_DIM,
             num_heads=2,
             batch_size=BATCH_SIZE,
-            train_device=device
+            train_device=device,
+            work_device=local_device
         )
         neural_turing_machine.to(device)
         ntm_optimizer = optim.Adam(neural_turing_machine.parameters(), lr=LR)
@@ -183,7 +183,8 @@ def main():
 
             # launch new task
             curr_episode += 1
-            job_list.append(meta_agents[info['id']].job.remote(weights_set, curr_episode, neural_turing_machine))
+            if USE_MULTI_THREAD:
+                job_list.append(meta_agents[info['id']].job.remote(weights_set, curr_episode, neural_turing_machine))
             # job_list.append(meta_agents[info['id']].job.remote(weights_set, curr_episode))
 
             # start training
@@ -206,6 +207,10 @@ def main():
                     sample_indices = random.sample(indices, BATCH_SIZE)
                     rollouts = []
                     for i in range(len(experience_buffer)):
+                        if EXPERIMENT_MODE != 'ntm':
+                            if i == 19 or i == 20 :
+                                rollouts.append([])
+                                continue
                         rollouts.append([experience_buffer[i][index] for index in sample_indices])
                         
                     for i in range(len(ground_truth_experience_buffer)):
@@ -231,8 +236,9 @@ def main():
                     next_local_edge_padding_mask = torch.stack(rollouts[16]).to(device)
                     next_robot_location = torch.stack(rollouts[17]).to(device)
                     next_stacked_msgs = torch.stack(rollouts[18]).to(device)
-                    memory_query = torch.stack(rollouts[19]).to(device)
-                    memory_state = deepcopy(rollouts[20])
+                    if EXPERIMENT_MODE == 'ntm':
+                        memory_query = torch.stack(rollouts[19]).to(device)
+                        memory_state = deepcopy(rollouts[20])
                     
                     ground_truth_local_node_inputs = torch.stack(rollouts[21]).to(device)
                     ground_truth_local_node_padding_mask = torch.stack(rollouts[22]).to(device)
@@ -254,21 +260,28 @@ def main():
                     next_observation = [next_local_node_inputs, next_local_node_padding_mask, next_local_edge_mask,
                                         next_current_local_index, next_current_local_edge, next_local_edge_padding_mask,next_robot_location, next_stacked_msgs]
                     
-                    ground_truth_obersevation = [ground_truth_local_node_inputs, ground_truth_local_node_padding_mask, ground_truth_local_edge_mask, ground_truth_current_local_index,
-                                      ground_truth_current_local_edge, ground_truth_local_edge_padding_mask]
-                    
-                    ground_truth_next_observation = [ground_truth_next_local_node_inputs, ground_truth_next_local_node_padding_mask, ground_truth_next_local_edge_mask,
+                    if PRIVILEDGED_INFO:
+                        ground_truth_obersevation = [ground_truth_local_node_inputs, ground_truth_local_node_padding_mask, ground_truth_local_edge_mask, ground_truth_current_local_index,
+                                        ground_truth_current_local_edge, ground_truth_local_edge_padding_mask]
+                        
+                        ground_truth_next_observation = [ground_truth_next_local_node_inputs, ground_truth_next_local_node_padding_mask, ground_truth_next_local_edge_mask,
                                         ground_truth_next_current_local_index, ground_truth_next_current_local_edge, ground_truth_next_local_edge_padding_mask]
+                    else:
+                        ground_truth_obersevation = observation[:-2]
+                        ground_truth_next_observation = next_observation[:-2]
                     # SAC
-
+                    
                     with torch.no_grad():
                         q_values1 = dp_q_net1(*ground_truth_obersevation)
                         q_values2 = dp_q_net2(*ground_truth_obersevation)
                         q_values = torch.min(q_values1, q_values2)
                     
-                    neural_turing_machine.set_state(memory_state)
-                    neural_turing_machine.set_train_mode(batch_size=BATCH_SIZE)
-                    memory_vec = neural_turing_machine(memory_query.squeeze())
+                    if EXPERIMENT_MODE == 'ntm':
+                        neural_turing_machine.set_state(memory_state)
+                        neural_turing_machine.set_train_mode(batch_size=BATCH_SIZE)
+                        memory_vec = neural_turing_machine(memory_query.squeeze())
+                    else:
+                        memory_vec = None
                     logp = dp_policy(*observation, memory_vec)
                     # for debug
                     # logp = global_policy_net(*observation, memory_vec)
@@ -283,12 +296,13 @@ def main():
                     policy_loss = policy_loss
                     
                     global_policy_optimizer.zero_grad()
-                    ntm_optimizer.zero_grad()
                     policy_loss.backward()
                     policy_grad_norm = torch.nn.utils.clip_grad_norm_(global_policy_net.parameters(), max_norm=100,
                                                                     norm_type=2)
                     global_policy_optimizer.step()
-                    ntm_optimizer.step()
+                    if EXPERIMENT_MODE == 'ntm':
+                        ntm_optimizer.zero_grad()
+                        ntm_optimizer.step()
 
 
                     with torch.no_grad():
@@ -386,6 +400,8 @@ def main():
                               "log_alpha_optimizer": log_alpha_optimizer.state_dict(),
                               "episode": curr_episode,
                               }
+                            #   "neural_turing_machine": neural_turing_machine.state_dict(),
+                            #   "memory": neural_turing_machine.memory
                 path_checkpoint = "./" + model_path + "/{}_checkpoint.pth".format(curr_episode)
                 torch.save(checkpoint, path_checkpoint)
                 # print('Saved model', end='\n')
