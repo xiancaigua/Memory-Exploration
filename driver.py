@@ -13,10 +13,15 @@ from model import PolicyNet, QNet, NeuralTuringMachine
 from runner import RLRunner,Runner
 # tune the GPU
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-# CUDA_VISIBLE_DEVICES=3 python driver.py > loggings/log04-14-ex4-1-base.txt 2>&1 &
+# CUDA_VISIBLE_DEVICES=1 python driver.py > loggings/log04-29-ntm-13.txt 2>&1 &
 
 ray.init()
 print("Welcome to RL autonomous exploration!")
+print("Expriment mode: ", EXPERIMENT_MODE, "------------------------------","Folder name: ", FOLDER_NAME)
+print("=== 参数文件内容 ===")
+for key, value in globals().copy().items():
+    print(f"{key}: {value}")
+
 writer = SummaryWriter(train_path)
 if not os.path.exists(model_path):
     os.makedirs(model_path)
@@ -28,6 +33,7 @@ if not os.path.exists(f'{map_data_folder}'):
 
 
 def main():
+
     # use GPU/CPU for driver/worker
     device = torch.device('cuda') if USE_GPU_GLOBAL else torch.device('cpu')
     local_device = torch.device('cuda') if USE_GPU else torch.device('cpu')
@@ -55,18 +61,20 @@ def main():
     target_q_update_counter = 1
 
     if EXPERIMENT_MODE == 'ntm':
+        pretrained_path = "model/memory/pretrained_ntm.pth"
         neural_turing_machine = NeuralTuringMachine(
-            input_size=EMBEDDING_DIM,
-            output_size=EMBEDDING_DIM,
+            input_size=3 * LOCAL_NODE_INPUT_DIM,
+            output_size=3 * LOCAL_NODE_INPUT_DIM,
             controller_size=80,
-            memory_size=20,
+            memory_size=NTM_SIZE,
             memory_vector_size=EMBEDDING_DIM,
             num_heads=2,
             batch_size=BATCH_SIZE,
             train_device=device,
             work_device=local_device
         )
-        neural_turing_machine.to(device)
+        checkpoint = torch.load(pretrained_path, map_location=device)
+        neural_turing_machine.load_state_dict(checkpoint)
         ntm_optimizer = optim.Adam(neural_turing_machine.parameters(), lr=LR)
     else:
         neural_turing_machine = None
@@ -74,7 +82,7 @@ def main():
     # load model and optimizer trained before
     if LOAD_MODEL:
         print('Loading Model...')
-        checkpoint = torch.load(model_path + '/checkpoint.pth', map_location='cpu')
+        checkpoint = torch.load("/home/zzh/Memory-Exploration/model/ntm-13/200_checkpoint.pth")
         global_policy_net.load_state_dict(checkpoint['policy_model'])
         global_q_net1.load_state_dict(checkpoint['q_net1_model'])
         global_q_net2.load_state_dict(checkpoint['q_net2_model'])
@@ -147,7 +155,7 @@ def main():
     # initialize training replay buffer
     experience_buffer = []
     ground_truth_experience_buffer = []
-    for _ in range(21):
+    for _ in range(20):
         experience_buffer.append([])
     for _ in range(12):
         ground_truth_experience_buffer.append([])
@@ -163,7 +171,6 @@ def main():
             else:
                 # for debug
                 done_jobs = [meta_agent.job(weights_set, curr_episode, neural_turing_machine)]
-
             # save experience and metric
             for job in done_jobs:
                 # job_results, metrics, info = job
@@ -237,22 +244,22 @@ def main():
                     next_robot_location = torch.stack(rollouts[17]).to(device)
                     next_stacked_msgs = torch.stack(rollouts[18]).to(device)
                     if EXPERIMENT_MODE == 'ntm':
-                        memory_query = torch.stack(rollouts[19]).to(device)
-                        memory_state = deepcopy(rollouts[20])
+                        memory_state = deepcopy(rollouts[19])
+                        # memory_query = torch.stack(rollouts[19]).to(device)
                     
-                    ground_truth_local_node_inputs = torch.stack(rollouts[21]).to(device)
-                    ground_truth_local_node_padding_mask = torch.stack(rollouts[22]).to(device)
-                    ground_truth_local_edge_mask = torch.stack(rollouts[23]).to(device)
-                    ground_truth_current_local_index = torch.stack(rollouts[24]).to(device)
-                    ground_truth_current_local_edge = torch.stack(rollouts[25]).to(device)
-                    ground_truth_local_edge_padding_mask = torch.stack(rollouts[26]).to(device)
+                    ground_truth_local_node_inputs = torch.stack(rollouts[20]).to(device)
+                    ground_truth_local_node_padding_mask = torch.stack(rollouts[21]).to(device)
+                    ground_truth_local_edge_mask = torch.stack(rollouts[22]).to(device)
+                    ground_truth_current_local_index = torch.stack(rollouts[23]).to(device)
+                    ground_truth_current_local_edge = torch.stack(rollouts[24]).to(device)
+                    ground_truth_local_edge_padding_mask = torch.stack(rollouts[25]).to(device)
                     
-                    ground_truth_next_local_node_inputs = torch.stack(rollouts[27]).to(device)
-                    ground_truth_next_local_node_padding_mask = torch.stack(rollouts[28]).to(device)
-                    ground_truth_next_local_edge_mask = torch.stack(rollouts[29]).to(device)
-                    ground_truth_next_current_local_index = torch.stack(rollouts[30]).to(device)
-                    ground_truth_next_current_local_edge = torch.stack(rollouts[31]).to(device)
-                    ground_truth_next_local_edge_padding_mask = torch.stack(rollouts[32]).to(device)
+                    ground_truth_next_local_node_inputs = torch.stack(rollouts[26]).to(device)
+                    ground_truth_next_local_node_padding_mask = torch.stack(rollouts[27]).to(device)
+                    ground_truth_next_local_edge_mask = torch.stack(rollouts[28]).to(device)
+                    ground_truth_next_current_local_index = torch.stack(rollouts[29]).to(device)
+                    ground_truth_next_current_local_edge = torch.stack(rollouts[30]).to(device)
+                    ground_truth_next_local_edge_padding_mask = torch.stack(rollouts[31]).to(device)
                     
 
                     observation = [local_node_inputs, local_node_padding_mask, local_edge_mask, current_local_index,
@@ -279,7 +286,8 @@ def main():
                     if EXPERIMENT_MODE == 'ntm':
                         neural_turing_machine.set_state(memory_state)
                         neural_turing_machine.set_train_mode(batch_size=BATCH_SIZE)
-                        memory_vec = neural_turing_machine(memory_query.squeeze())
+                        memory_query = local_node_inputs[:, :3, :].reshape(BATCH_SIZE, -1)
+                        memory_vec = neural_turing_machine(memory_query)
                     else:
                         memory_vec = None
                     logp = dp_policy(*observation, memory_vec)
@@ -306,7 +314,14 @@ def main():
 
 
                     with torch.no_grad():
-                        next_logp = dp_policy(*next_observation)
+                        if EXPERIMENT_MODE == 'ntm':
+                            neural_turing_machine.set_state(memory_state)
+                            neural_turing_machine.set_train_mode(batch_size=BATCH_SIZE)
+                            memory_query = next_local_node_inputs[:, :3, :].reshape(BATCH_SIZE, -1)
+                            memory_vec = neural_turing_machine(memory_query)
+                        else:
+                            memory_vec = None
+                        next_logp = dp_policy(*next_observation,memory_vec)
                         next_q_values1 = dp_target_q_net1(*ground_truth_next_observation)
                         next_q_values2 = dp_target_q_net2(*ground_truth_next_observation)
                         next_q_values = torch.min(next_q_values1, next_q_values2)
@@ -361,6 +376,12 @@ def main():
                 training_data.append(data)
                 print("training over-------------------------episode", curr_episode)
 
+                # if (curr_episode - 1) % REPLAY_TIMES == 0:
+                #     for i in range(len(experience_buffer)):
+                #         experience_buffer[i] = []
+                #     for i in range(len(ground_truth_experience_buffer)):
+                #         ground_truth_experience_buffer[i] = []
+
             # write record to tensorboard
             if len(training_data) >= SUMMARY_WINDOW:
                 write_to_tensor_board(writer, training_data, curr_episode)
@@ -399,13 +420,18 @@ def main():
                               "q_net2_optimizer": global_q_net2_optimizer.state_dict(),
                               "log_alpha_optimizer": log_alpha_optimizer.state_dict(),
                               "episode": curr_episode,
+                              "neural_turing_machine": neural_turing_machine.state_dict(),
+                              "memory": neural_turing_machine.memory
                               }
-                            #   "neural_turing_machine": neural_turing_machine.state_dict(),
-                            #   "memory": neural_turing_machine.memory
                 path_checkpoint = "./" + model_path + "/{}_checkpoint.pth".format(curr_episode)
                 torch.save(checkpoint, path_checkpoint)
                 # print('Saved model', end='\n')
                 print('Model saved to', path_checkpoint, end='\n')
+
+                if curr_episode == TRUNC_VALUE:
+                    print("Training finished")
+                    break
+
 
     except KeyboardInterrupt:
         print("CTRL_C pressed. Killing remote workers")

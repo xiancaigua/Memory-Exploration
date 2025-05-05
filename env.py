@@ -83,25 +83,40 @@ class Env:
         # 加载真实地图并处理为可用格式。
         # 确定地图目录，根据是否为测试模式选择不同的目录
         map_dir = f'maps_medium'
-        if self.test:
-            map_dir = f'maps_test'
+        # if self.test:
+        #     map_dir = f'maps_test'
         
         
 
         # 获取地图文件列表并选择当前任务对应的地图文件
         map_list = os.listdir(map_dir)
-        ordered_map_list = ['0complex.png','0maze.png','0mix.png']
+        ordered_map_list = ['task0.png','task1.png','task2.png']
 
-        if EXPERIMENT_MODE == 'origin':
-            map_index = episode_index % np.size(map_list)
+        if self.test:
+            map_index = ((episode_index -1) // (NUM_TEST // 3)) % 3
         else:
-            map_index = ((episode_index -1) // REPLAY_TIMES) % TOTAL_SCENARIO
-        
+            if EXPERIMENT_MODE == 'origin':
+                map_index = episode_index % np.size(map_list)
+            else:
+                map_index = ((episode_index -1) // REPLAY_TIMES) % TOTAL_SCENARIO
+            # if episode_index <= 300:
+            #     # 前300回合选择地图0
+            #     map_index = 0
+            # elif 301 <= episode_index <= 800:
+            #     # 301-800回合地图0与1交替
+            #     map_index = (episode_index - 301) % 2
+            # elif 801 <= episode_index <= 1600:
+            #     # 801-1300回合地图0、1、2交替
+            #     map_index = (episode_index - 801) % 3
+            # else:
+            #     # 超过1300回合后的逻辑（可根据需要调整）
+            #     map_index = episode_index % np.size(ordered_map_list)        
         
 
         # self.map_path = map_dir + '/' + map_list[map_index]
+        # map_index = episode_index % 3
         self.map_path = map_dir + '/' + ordered_map_list[map_index]
-        # self.map_path = map_dir + '/' + "dungeon/" + '11.png'
+        # self.map_path = map_dir + '/' + ordered_map_list[0]
         print(f'Loading map: {self.map_path}')
         # 加载地图文件并转换为整数类型
         ground_truth = (io.imread(self.map_path, 1)).astype(int)

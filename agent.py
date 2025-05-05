@@ -2,11 +2,15 @@ import copy
 from copy import deepcopy
 import numpy as np
 import torch
+import random
 from utils import *
 from parameter import *
 from test_parameter import *
 from local_node_manager_quadtree import Local_node_manager
 from model import *
+
+if mode == 'greed':
+    LOCAL_MAP_SIZE = 12
 
 class MemoryAgent:
     """
@@ -35,15 +39,13 @@ class MemoryAgent:
     #     self.output_size = output_size
     
     def process(self, robot_inputs):
-        """
-        所有机器人将自己的状态 embedding 提交进来，记忆模块统一处理。
-        :param robot_inputs: [B, input_size] 的状态嵌入向量
-        :return: [B, output_size] 的记忆读取向量（供每个 agent 使用）
-        """
-        assert robot_inputs.shape == torch.Size([self.batch_size, self.input_size]), f"batch size mismatch: {robot_inputs.shape} vs {torch.Size([self.batch_size, self.input_size])}"
+        
+        # assert robot_inputs.shape == torch.Size([1, LOCAL_NODE_PADDING_SIZE, self.input_size // 3]), f"batch size mismatch: {robot_inputs.shape} vs {torch.Size([self.batch_size, self.input_size])}"
         # 处理每个机器人的输入
         with torch.no_grad():
-            out = self.ntm(robot_inputs)
+            selected = robot_inputs[:, :3, :]
+            inputs = selected.reshape(1, -1)
+            out = self.ntm(inputs)
         return out
 
     def get_memory(self):
@@ -321,7 +323,42 @@ class Agent:
         next_position = self.local_node_coords[next_node_index]
 
         return next_position, next_node_index, action_index
-           
+    
+    def greed_select_next_waypoint(self, local_observation):
+        local_node_inputs = local_observation[0][0].cpu().numpy()        # shape: [n_nodes, features]
+        local_edge_mask = local_observation[2][0].cpu().numpy()          # shape: [n_nodes, n_nodes]
+        current_index = local_observation[3][0][0][0].item()             # 当前节点编号
+        local_coords = self.local_node_coords
+        utilities = self.utility.copy()
+
+        # 1️⃣ 屏蔽效用为 -1 的无效节点
+        valid_mask = ((utilities != -1)&(utilities != 0) )
+
+        # 2️⃣ 依据掩码定义：0 表示“有边”，是可达的节点
+        reachability_mask = (local_edge_mask[current_index] == 0)
+
+        # 3️⃣ 合并条件
+        combined_mask = valid_mask & reachability_mask
+
+        if not np.any(combined_mask):
+            # ⚡ 没有有效高效用节点，随机选择一个连通邻居
+            reachable_indices = np.where(reachability_mask)[0]
+            if len(reachable_indices) > 0:
+                random_index = random.choice(reachable_indices)
+                random_location = local_coords[random_index]
+                return random_location, random_index, random_index
+            else:
+                # 实在没有连通邻居，保底返回自己
+                return self.location, self.current_local_index, -1
+
+        # 4️⃣ 贪婪选点（在可达 + 有效的节点中选最大效用）
+        masked_utilities = np.where(combined_mask, utilities, -np.inf)
+        best_index = np.argmax(masked_utilities)
+        best_location = local_coords[best_index]
+
+        return best_location, best_index, best_index
+
+
     def get_local_map(self, location):
         # 获取局部地图信息。
         local_map_origin_x = (location[
@@ -487,12 +524,12 @@ class Agent:
         self.ground_truth_episode_buffer[10] += current_local_edge
         self.ground_truth_episode_buffer[11] += local_edge_padding_mask.bool()
         
-    def save_memory_query(self, memory_query):
-        # 保存记忆查询信息。
-        self.episode_buffer[19] += copy.deepcopy([memory_query.detach().squeeze(0)])
+    # def save_memory_query(self, memory_query):
+    #     # 保存记忆查询信息。
+    #     self.episode_buffer[19] += copy.deepcopy([memory_query.detach().squeeze(0)])
     def save_memory_state(self, memory_state):
         # 保存记忆状态信息。
-        self.episode_buffer[20] += copy.deepcopy([memory_state])
+        self.episode_buffer[19] += copy.deepcopy([memory_state])
 
     def get_no_padding_observation(self):
         # 获取未填充的观测信息。

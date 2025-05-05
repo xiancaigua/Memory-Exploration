@@ -250,6 +250,7 @@ class Decoder(nn.Module):
 class PolicyNet(nn.Module):
     def __init__(self, node_dim, embedding_dim, mode = 'base'):
         super(PolicyNet, self).__init__()
+        self.mode = mode
 
         self.node_inputs_embedding = nn.Linear(node_dim, embedding_dim)
         self.graph_node_encoder = Encoder(embedding_dim=embedding_dim, n_head=8, n_layer=6)
@@ -260,6 +261,9 @@ class PolicyNet(nn.Module):
 
         self.current_embedding = nn.Linear(embedding_dim * 2, embedding_dim)
         self.pointer = SingleHeadAttention(embedding_dim)
+
+        if mode == 'ntm':
+            self.memory_input_embedding = nn.Linear(node_dim * 3, embedding_dim)
 
     def encode_graph(self, node_inputs, node_padding_mask, edge_mask):
         graph_feature = self.node_inputs_embedding(node_inputs)
@@ -320,6 +324,8 @@ class PolicyNet(nn.Module):
         
         enhanced_node_feature, current_state_feature = self.get_current_state_feature(node_inputs, node_padding_mask, edge_mask, current_index, current_coord)
 
+        if self.mode == 'ntm':
+            memory_vector = self.memory_input_embedding(memory_vector)
         enhanced_cooperative_state_feature = self.decode_cooperative_state(current_state_feature,
                                                                                      msg_stacked, 
                                                                                      memory_vector = memory_vector)
@@ -428,6 +434,19 @@ class NeuralTuringMachine(nn.Module):
         self.output_layer = nn.Linear(controller_size + memory_vector_size * num_heads, output_size)
 
         self.ntm_state = self.init_state(batch_size)
+    def set_pretrain_mode(self, batch_size):
+        self.mode = 'pretraining'
+        self.device = self.train_device
+        self.batch_size = batch_size
+        self.ntm_state = self.init_state(self.batch_size)
+        
+        self.memory = self.memory.to(self.device)
+        self.ntm_state['controller_state'][0] = self.ntm_state['controller_state'][0].to(self.device)
+        self.ntm_state['controller_state'][1] = self.ntm_state['controller_state'][1].to(self.device)
+        for i in range(self.num_heads):
+            self.ntm_state['read_weights'][i]=  self.ntm_state['read_weights'][i].to(self.device)
+            self.ntm_state['write_weights'][i] = self.ntm_state['write_weights'][i].to(self.device)
+        self.to(self.device)
     def set_train_mode(self, batch_size):
         self.mode = 'training'
         self.device = self.train_device
@@ -456,10 +475,10 @@ class NeuralTuringMachine(nn.Module):
         self.to(self.device)
     def init_state(self, batch_size):
 
-        controller_state = [torch.zeros(batch_size, self.controller_size),
-                            torch.zeros(batch_size, self.controller_size)]
-        read_weights = [torch.zeros(batch_size, self.memory_size) for _ in range(self.num_heads)]
-        write_weights = [torch.zeros(batch_size, self.memory_size) for _ in range(self.num_heads)]
+        controller_state = [torch.zeros(batch_size, self.controller_size).to(self.device),
+                            torch.zeros(batch_size, self.controller_size).to(self.device)]
+        read_weights = [torch.zeros(batch_size, self.memory_size).to(self.device) for _ in range(self.num_heads)]
+        write_weights = [torch.zeros(batch_size, self.memory_size).to(self.device) for _ in range(self.num_heads)]
         return {
             'controller_state': controller_state,
             'read_weights': read_weights,
@@ -500,16 +519,16 @@ class NeuralTuringMachine(nn.Module):
 
             weight = self._address_memory(self.ntm_state['read_weights'][i], key, beta, gate, shift, gamma)
             self.ntm_state['read_weights'][i] = weight
-
             read_vector = torch.bmm(weight.unsqueeze(1), 
-                                    self.memory.unsqueeze(0).expand(self.batch_size,-1,-1)).squeeze(1)
+                                    self.memory.detach().unsqueeze(0).expand(self.batch_size,-1,-1)).squeeze(1)
             read_vectors.append(read_vector)
+        read_vectors = torch.cat(read_vectors, dim=1) 
 
-        return torch.cat(read_vectors, dim=1)
+        return read_vectors
     def write(self):
         batched_memories = torch.zeros(self.num_heads, self.batch_size, 
                                        self.memory_size, self.memory_vector_size).to(self.device)
-        batched_memory = self.memory.unsqueeze(0).expand(self.batch_size,-1,-1)
+        batched_memory = self.memory.detach().unsqueeze(0).expand(self.batch_size,-1,-1)
         for i in range(self.num_heads):
             h = self.ntm_state['controller_state'][0]
             key = self.write_key_layers[i](h)
@@ -528,7 +547,7 @@ class NeuralTuringMachine(nn.Module):
                           weight.unsqueeze(2) * add.unsqueeze(1)
         # 将所有头的记忆合并
         mean_batched_memories = torch.mean(batched_memories, dim=0)
-        self.memory = torch.mean(mean_batched_memories, dim=0)
+        self.memory = torch.mean(mean_batched_memories, dim=0).detach()
 
     def update_memory(self, new_memory):
         self.memory = new_memory
@@ -562,6 +581,7 @@ class NeuralTuringMachine(nn.Module):
         print("Memory Norm (avg):", self.memory.norm(dim=1).mean().item())
         top_slots = self.memory.norm(dim=1).topk(topk)
         print("Top activated memory slots:", top_slots)
+
 
     
 

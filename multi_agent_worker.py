@@ -64,7 +64,7 @@ class Multi_agent_worker:
         
         self.episode_buffer = []
         self.perf_metrics = dict()
-        for _ in range(21):
+        for _ in range(20):
             self.episode_buffer.append([])
             
         self.ground_truth_episode_buffer = []
@@ -97,7 +97,7 @@ class Multi_agent_worker:
             next_ground_truth_observations = []
 
             if EXPERIMENT_MODE == "ntm":
-                memory_vector = torch.zeros((self.n_agent, self.ntm.input_size), dtype=torch.float32, device=self.device)
+                memory_vector = torch.zeros((self.n_agent, self.ntm.output_size), dtype=torch.float32, device=self.device)
             else:
                 memory_vector = None
             # send msg
@@ -114,8 +114,8 @@ class Multi_agent_worker:
                 if EXPERIMENT_MODE == "ntm":
                     current_memory_state = self.ntm.get_memory_state()
                     robot.save_memory_state(current_memory_state)
-                    memory_vector[robot.id, : ] = self.ntm.process(current_state_feature.squeeze(1))
-                    robot.save_memory_query(current_state_feature)
+                    memory_vector[robot.id, : ] = self.ntm.process(local_node_inputs)
+                    # robot.save_memory_query(current_state_feature)
                 # send detached current_state_feature to other robots
                 self.send_msg(current_state_feature.detach(), robot.id)
 

@@ -11,7 +11,7 @@ class Runner(object):
         # 初始化 Runner，包括元代理 ID 和设备设置。
         self.meta_agent_id = meta_agent_id
         self.device = torch.device('cuda') if USE_GPU else torch.device('cpu')
-        self.local_network = PolicyNet(LOCAL_NODE_INPUT_DIM, EMBEDDING_DIM)
+        self.local_network = PolicyNet(LOCAL_NODE_INPUT_DIM, EMBEDDING_DIM, mode=EXPERIMENT_MODE)
         self.local_network.to(self.device)
         self.neural_turing_machine = None
 
@@ -23,12 +23,17 @@ class Runner(object):
         # 设置策略网络的权重。
         self.local_network.load_state_dict(weights)
     
-    def do_job(self, episode_number):
+    def do_job(self, episode_number, in_pretrain=False):
         # 执行一个任务周期，包括环境交互和性能指标计算。
         current_memory = None
 
-        save_img = True if (episode_number % SAVE_IMG_GAP == 0) else False
-        # save_img = True
+        if in_pretrain:
+            save_img = False
+        else:
+            save_img = True if ((episode_number % SAVE_IMG_GAP == 0) or \
+                                ((episode_number-1) % SAVE_IMG_GAP == 0) \
+                                    or ((episode_number-2) % SAVE_IMG_GAP == 0))  else False
+
         worker = Multi_agent_worker(self.meta_agent_id, self.local_network, episode_number, self.neural_turing_machine, device=self.device, save_image=save_img)
         worker.run_episode()
 
@@ -40,13 +45,13 @@ class Runner(object):
             current_memory = worker.ntm.get_memory()
         return job_results, ground_truth_job_results, perf_metrics, current_memory
     
-    def job(self, weights_set, episode_number, neural_turing_machine):
+    def job(self, weights_set, episode_number, neural_turing_machine, in_pretrain=False):
         # 分配任务并返回结果，包括任务数据和性能指标。
         print("starting episode {} on metaAgent {}".format(episode_number, self.meta_agent_id))
         self.set_policy_net_weights(weights_set[0])
         self.neural_turing_machine = neural_turing_machine
 
-        job_results, ground_truth_job_results, metrics, current_memory = self.do_job(episode_number)
+        job_results, ground_truth_job_results, metrics, current_memory = self.do_job(episode_number,in_pretrain)
 
         print("finished episode {} on metaAgent {}".format(episode_number, self.meta_agent_id))
 
